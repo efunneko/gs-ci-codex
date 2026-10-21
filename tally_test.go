@@ -9,3 +9,11 @@ func TestWords(t *testing.T) {
 		}
 	}
 }
+
+func TestLines(t *testing.T) {
+	for s, want := range map[string]int{"": 0, "a": 1, "a\n": 1, "a\nb": 2, "a\nb\n": 2} {
+		if got := Lines(s); got != want {
+			t.Errorf("Lines(%q) = %d, want %d", s, got, want)
+		}
+	}
+}
