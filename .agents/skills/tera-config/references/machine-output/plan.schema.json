@@ -1,0 +1,2281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/machine-output/plan/v1",
+  "title": "Config plan contract (v1)",
+  "description": "Machine-output contract for `tera config plan` (ADR-064 §8). A plan is the reviewed, ordered action set apply executes — object identities, per-action blast radius, in-plan dependency edges, a per-operation summary, and the per-vault git-HEAD baseline the TOCTOU guard re-checks. The human rendering is derived from this JSON, never computed separately.",
+  "type": "object",
+  "required": [
+    "version",
+    "scope",
+    "actions",
+    "summary",
+    "baseline"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Machine-output plan contract version. Stamped by the planner; the plan schema in the ADR-065 registry serves this contract."
+    },
+    "scope": {
+      "type": "array",
+      "description": "Vault IDs this plan owns. Pruning and deletion are confined to these vaults (ADR-064 §4).",
+      "items": {
+        "type": "string"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "description": "Ordered object transitions, dependency-first for creates/updates and dependents-first for deletes. Each carries its own blast radius.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "create",
+              "update",
+              "delete",
+              "build",
+              "upload"
+            ],
+            "description": "The transition applied to this object."
+          },
+          "vault": {
+            "type": "string",
+            "description": "Owning vault ID."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Object kind (tools, listeners, mcp-exposures, work-order-types, …)."
+          },
+          "path": {
+            "type": "string",
+            "description": "Vault-relative path of the single file this action is about, when it is about a file rather than the whole object. Set on an upload action for a non-text file routed to the content store by its bytes; a build-produced upload leaves it empty and names its tool object instead, which is what distinguishes the two on the wire."
+          },
+          "name": {
+            "type": "string",
+            "description": "Canonical object identity, <vault>/<kind>/<name>."
+          },
+          "blast_radius": {
+            "type": "array",
+            "description": "Human-readable runtime consequences of this action (e.g. bounces MQTT listener, re-describes 3 bindings, destroys vault subtree).",
+            "items": {
+              "type": "string"
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "description": "Canonical names of other objects in this plan this action must be ordered after.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode_changes": {
+            "type": "array",
+            "description": "File-mode transitions this action performs (ADR-064 Amendment 3). Present when a file's stored mode changes; an action whose only divergence is a mode has an empty text diff, so this is what makes it legible.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Vault-relative path whose stored mode changes."
+                },
+                "from": {
+                  "type": "string",
+                  "description": "Git file mode before the change: 100644 or 100755."
+                },
+                "to": {
+                  "type": "string",
+                  "description": "Git file mode after the change: 100644 or 100755."
+                }
+              },
+              "required": [
+                "path",
+                "from",
+                "to"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "execution_policy": {
+            "type": "array",
+            "description": "Model-default changes this action carries, classified as execution-policy changes (ADR-131 D9). Present only on an action that moves a tier table, a tier/model/effort expression, or a static model or effort value; absent on every other action, which is what keeps the classification meaningful.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "surface": {
+                  "type": "string",
+                  "enum": [
+                    "config_defaults",
+                    "config",
+                    "config_map"
+                  ],
+                  "description": "Which authoring surface moved: config_defaults (a tool's deployment-wide defaults), config (a binding's static document), or config_map (a binding's CEL expressions)."
+                },
+                "site": {
+                  "type": "string",
+                  "description": "Where inside the object, when the object has more than one place to author a binding: the capability a work-order type binds, or the step of a workflow. Empty for a tool's own config_defaults, which has exactly one site."
+                },
+                "change": {
+                  "type": "string",
+                  "enum": [
+                    "added",
+                    "removed",
+                    "changed"
+                  ],
+                  "description": "Whether this surface gained, lost, or altered its model-policy declaration."
+                },
+                "keys": {
+                  "type": "array",
+                  "description": "The model-policy configuration keys involved, sorted: model_tiers, model_tier, model, effort. Names only — no authored value is carried here, and the before/after bytes are read in the text diff.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "tiers": {
+                  "type": "array",
+                  "description": "Tier names whose row moved, sorted, when a complete table changed. Names only, for the reason keys are.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "surface",
+                "change",
+                "keys"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "op",
+          "vault",
+          "kind",
+          "name",
+          "blast_radius",
+          "depends_on"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "Per-operation counts for the reviewed transition.",
+      "properties": {
+        "create": {
+          "type": "integer",
+          "description": "Number of create actions."
+        },
+        "update": {
+          "type": "integer",
+          "description": "Number of update actions."
+        },
+        "delete": {
+          "type": "integer",
+          "description": "Number of delete actions."
+        },
+        "build": {
+          "type": "integer",
+          "description": "Number of build actions (J8 slot)."
+        },
+        "upload": {
+          "type": "integer",
+          "description": "Number of upload actions (J8 slot)."
+        }
+      },
+      "required": [
+        "create",
+        "update",
+        "delete",
+        "build",
+        "upload"
+      ],
+      "additionalProperties": false
+    },
+    "baseline": {
+      "type": "array",
+      "description": "Per-vault git HEAD captured at plan time. apply refuses if any owned vault has moved since (TOCTOU guard, ADR-064 §3).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "type": "string",
+            "description": "Owned vault ID."
+          },
+          "commit": {
+            "type": "string",
+            "description": "Vault git HEAD at plan time. Empty means the vault had no commits yet."
+          },
+          "absent": {
+            "type": "boolean",
+            "description": "The vault is not mounted: a plan whose scope also holds the system vault planned it from an empty tree, as it would be once created (PLAN-2026-10 repository-vaults R-W5-1). An apply refuses it until it exists."
+          }
+        },
+        "required": [
+          "vault",
+          "commit"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "secrets": {
+      "type": "array",
+      "description": "Secret preflight results (J5): one entry per credential reference in the desired tree. Model-(b) secret:// references carry a present/missing/changed hash-check status; model-(a) live references (env://, keychain://, vault://) carry status reference — the server re-resolves them at runtime and rotation is not config drift.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "Secret reference the desired tree points at, verbatim (e.g. secret://db_password, keychain://…, env://…)."
+          },
+          "status": {
+            "type": "string",
+            "description": "Server-side preflight outcome: reference (model-a live ref, re-resolved at runtime — not drift), or present/missing/changed for a model-b pushed secret's HMAC hash-check. It says nothing about whether this invocation found a local value — see local."
+          },
+          "local": {
+            "type": "string",
+            "description": "Client-side local-value availability for a model-b pushed secret, filled in by the CLI (the server never sets it): found, placeholder (a pull-scaffolded placeholder, which apply refuses), or absent (no value in any searched .tera-secrets.json, so this invocation cannot change the stored value). Empty for a model-a reference and for a plan computed by a caller that did not look."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Human-readable detail when the status is not a clean present/reference."
+          },
+          "write_back": {
+            "type": "string",
+            "description": "Set by the server when this secret:// row is a write-back target: the member that supplies a write_back = true credential from it. The daemon rotates that value and writes it back, so an apply refuses to overwrite a stored one unless the row is named in --replace-write-back. Empty for every other row."
+          }
+        },
+        "required": [
+          "ref",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "builds": {
+      "type": "array",
+      "description": "Client-side build results (J8 slot). Empty until the build+publish workstream fills it.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "description": "Canonical name of the object whose artifact was built."
+          },
+          "status": {
+            "type": "string",
+            "description": "Build outcome: built, failed, skipped, or up-to-date. A built artifact whose digest already matches the committed one is reported up-to-date and carries no build/upload action (issue #653)."
+          },
+          "digest": {
+            "type": "string",
+            "description": "Content digest of the built artifact, when built."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Human-readable detail (e.g. the failure reason)."
+          }
+        },
+        "required": [
+          "object",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "source": {
+      "type": "object",
+      "description": "Materialized desired .tera trees per owned vault, embedded so a saved plan re-applies exactly the reviewed tree without the client re-reading local files.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "modes": {
+      "type": "array",
+      "description": "Per-vault file-mode posture and the planned executable-path set, embedded so a saved plan replays the modes it showed (ADR-064 Amendment 3 rules 2 and 3). Absent on a plan computed before the amendment, which reads as every vault mode-unmanaged.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "type": "string",
+            "description": "Owned vault ID."
+          },
+          "managed": {
+            "type": "boolean",
+            "description": "Whether the client declared this vault's file modes. False means mode-unmanaged: the engine preserved whatever modes the vault's files already had, and this plan makes no claim about them."
+          },
+          "executable": {
+            "type": "array",
+            "description": "Sorted vault-relative paths the plan will make executable. Complete and authoritative for a managed vault — a path absent from it is not executable. Empty/absent for an unmanaged vault.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "vault",
+          "managed"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "content_routed": {
+      "type": "array",
+      "description": "Per-vault desired-tree paths whose bytes ride the content-addressed artifact store because they are not valid UTF-8 text, rather than because a build produced them (ADR-064 §7). Embedded so a saved plan replays the mode decision it was computed under: a build-produced artifact is landed executable server-side, and one of these carries the mode the client read off the source tree. Absent on a plan whose artifacts were all build-produced.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "type": "string",
+            "description": "Owned vault ID."
+          },
+          "paths": {
+            "type": "array",
+            "description": "Sorted vault-relative paths.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "vault",
+          "paths"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Advisories about the reviewed transition: consequences apply will carry out that the action list does not state. Advisory only — a plan carrying warnings is a plan apply will execute, and a plan that cannot be computed is an error response rather than a finding here.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "warning"
+            ],
+            "description": "Finding severity. Always warning: a plan carries advisories, never errors — a transition that cannot be computed is an error response instead. Carried explicitly so a caller filtering severity == \"error\" over plan and validate findings alike behaves the same on both."
+          },
+          "path": {
+            "type": "string",
+            "description": "What the warning is about, in the plan's own identity spelling: the canonical object name <vault>/<kind>/<name> when one object occasions it."
+          },
+          "message": {
+            "type": "string",
+            "description": "The advisory, in the ADR-087 D8 error-grammar shape: state the consequence, then name the repairs."
+          },
+          "code": {
+            "type": "string",
+            "description": "A stable machine name for the advisory, for a caller that acts on one kind of warning without parsing its message — type_leaf_ambiguous when the transition makes a work-order type leaf that was unique ambiguous (ADR-156 D7 item 4), builds_on_missing when an in-scope vault holds a recipe the transition does not write whose declared address into a plugin has no .tera/builds-on/ declaration, which the mount degrades with the same code — the message names the recipe and the declaration to write (ADR-158 D3 item 2), engine_owned when the system vault holds, and the transition leaves as it is, an unedited copy of an object the binary contributes, which is not loaded (ADR-161 D13 item 4), host_level_values when a runner reports a host {} field its runner.hcl still sets that the planned configuration supersedes or leaves undeclared, with the runner \"<id>\" { host {} } block that keeps it (ADR-164 D4 item 1), host_values_unknown when a declared runner's report of those values is not held — it is not connected, has not answered, or does not take host policy — and retired_runner_attribute when a runner reports its runner.hcl sets launch_agent_label or runner { label }, which ADR-164 D1 retires, and pool_member_unoffered when a member of a pool a host-executed tool is placed on does not offer it — the message names the member, and the fact it lacks or, when its host has not reported the fact, unknown with the reason (ADR-164 D7), and tracked_vault_pending when a worker's permissions.tools grants a tool in a tracked vault the tracker has not applied yet — the grant is admitted and admits nothing until the tracker's apply registers the tool; the message names the worker, the entry and the vault, and tera vault refresh <alias> (ADR-147 D10), and tracked_vault_grant_unresolved when a plan applies a tracked vault whose content leaves a system-vault worker's permissions.tools grant into it unresolved while the worker is out of scope — the application still commits; the message names the worker, the entry, the vault and the ref being applied, and says the next system-vault apply touching the worker refuses it (ADR-147 D10). Absent on an advisory that declares none."
+          }
+        },
+        "required": [
+          "severity",
+          "path",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "description": "The plugin review (ADR-140 D4): one entry per plugin installation this transition installs or changes, with each grant its manifest requests, by purpose, and its decision; the elevated requests; and the plugin's egress, limits and placement. Absent on a plan that changes no installation. A desired tree with an undecided grant is refused before a plan exists, so every grant here is decided.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "string",
+            "description": "The installation's canonical name, <vault>/plugins/<name>."
+          },
+          "vault": {
+            "type": "string",
+            "description": "The vault the installation is in."
+          },
+          "name": {
+            "type": "string",
+            "description": "The installation's name: its bundle directory. It is the plugin's name too unless the installation was named otherwise with tera plugin add --as; the plugin's name is plugin_name."
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "installed",
+              "upgraded",
+              "decided"
+            ],
+            "description": "What this transition does to the installation: installed (no bundle of this name is in the vault yet), upgraded (the vendored manifest changes), or decided (the manifest is the same and only the installation's own file changes, such as a decision)."
+          },
+          "version": {
+            "type": "string",
+            "description": "The version the vendored manifest describes, after this transition."
+          },
+          "previous_version": {
+            "type": "string",
+            "description": "The version the vault's current vendored manifest describes, on an upgrade. Absent otherwise."
+          },
+          "grants": {
+            "type": "array",
+            "description": "Every grant the manifest requests, in the manifest's order, each with its decision. Grants that are true by construction — the plugin's own verbs, observation of its own Work Order types, its own data volume — are never requested, so they are never listed here.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The grant id the manifest requests and the installation decides under."
+                },
+                "purpose": {
+                  "type": "string",
+                  "description": "Why the plugin needs the grant, in its author's words. The review renders this rather than the resource strings, because it is written for the person deciding."
+                },
+                "request": {
+                  "type": "string",
+                  "enum": [
+                    "on_behalf_of",
+                    "as_itself",
+                    "vouch",
+                    "holds"
+                  ],
+                  "description": "Which kind of authority the grant requests: on_behalf_of (act for a person who is present), as_itself (file Work Orders of named types as the plugin), vouch (act as a linked person on inbound traffic of a transport class, under a ceiling), or holds (hold the off-tera Work Orders of named types of the plugin's own vault as the plugin: take, progress, file children, submit, cancel and repost)."
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "approved",
+                    "declined",
+                    "undecided"
+                  ],
+                  "description": "The installation's decision on the grant as it is requested now. A decision recorded about an earlier request of the same id reads undecided, with reopened set."
+                },
+                "reopened": {
+                  "type": "boolean",
+                  "description": "The installation records a decision on this grant id, but about a different request: the manifest changed the grant underneath it, so the decision no longer stands."
+                },
+                "elevated": {
+                  "type": "string",
+                  "description": "Why the grant is elevated, when it is: it acts on behalf of a person, or vouches for people. Absent on a grant that is not."
+                },
+                "types": {
+                  "type": "array",
+                  "description": "The Work Order types the grant requests, as its manifest writes them: on an on_behalf_of, as_itself or holds grant. Absent on a vouch, and on an on_behalf_of grant whose manifest writes none: one naming work_order/create, whose types are decision_types, and one naming no create, whose verbs no type confines.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "resolved_types": {
+                  "type": "array",
+                  "description": "The Work Order type key each of types names, in the same order: this installation's own release's for a bare name or one written by the plugin's own name, and the release of the installation a builds_on dependency is bound to, at the declared major, for one written by another plugin's name (ADR-156 D6, ADR-158 D2). The grant is compiled to these keys. An empty entry names no type. Absent on a vouch.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "workers": {
+                  "type": "array",
+                  "description": "On an as_itself grant, the workers the installation's workers = [...] lets its Work Orders be owned by, and so run as (ADR-141 D6). Empty while the operator has named none; the plan refuses an approved as_itself grant whose list is empty. Absent on any other grant, and on an as_itself grant whose manifest names its worker by parameter, which carries worker instead.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "worker": {
+                  "type": "string",
+                  "description": "On an as_itself grant whose manifest names its worker by parameter (as_itself { worker = \"<parameter>\" }), the worker that parameter resolves to for this installation and major: the one worker the Work Orders it files run as. The decision covers this value, so changing the parameter re-opens it (ADR-159 D4). Absent when the parameter has no value, and on every other grant."
+                },
+                "worker_parameter": {
+                  "type": "object",
+                  "description": "The parameter worker is resolved from, with where its value came from. Absent on a grant that names no worker parameter.",
+                  "properties": {
+                    "parameter": {
+                      "type": "string",
+                      "description": "The parameter's name: a top-level property of the manifest's config_schema."
+                    },
+                    "source": {
+                      "type": "string",
+                      "description": "Where its value came from: installation \"<name>\" when the installation's config {} sets it, or default when it is the config_schema's default."
+                    }
+                  },
+                  "required": [
+                    "parameter",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                },
+                "worker_need": {
+                  "type": "string",
+                  "enum": [
+                    "configured",
+                    "unset",
+                    "default"
+                  ],
+                  "description": "On an as_itself grant whose manifest names its worker by parameter, whether the installation gives the plugin the credentialed worker of the deployment's own its unattended work needs (ADR-161 D12 item 2): configured when the parameter names one, unset when it has no value, and default when it resolves to default, the worker that acts only for a person who asked. The plan refuses a trigger whose worker is unset or default. Absent on every other grant."
+                },
+                "verbs": {
+                  "type": "array",
+                  "description": "On an on_behalf_of grant, the verbs it requests, as its manifest writes them. A management verb, api/v1/<resource>/<verb> (ADR-162 D6), is rendered with the resource it names. Absent on any other grant.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "added": {
+                  "type": "object",
+                  "description": "On an upgrade, the verbs and types this grant's request gained against the grant of the same id in the installed release. Absent when nothing was added, when the variant changed (previous_request), and on a grant the installed release does not request.",
+                  "properties": {
+                    "verbs": {
+                      "type": "array",
+                      "description": "The verbs, as the manifest writes them, in the order the release that holds them writes them.",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "types": {
+                      "type": "array",
+                      "description": "The Work Order types, as the manifest writes them, in the order the release that holds them writes them.",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "removed": {
+                  "type": "object",
+                  "description": "On an upgrade, the verbs and types this grant's request lost against the grant of the same id in the installed release. Absent when nothing was removed, when the variant changed (previous_request), and on a grant the installed release does not request.",
+                  "properties": {
+                    "verbs": {
+                      "type": "array",
+                      "description": "The verbs, as the manifest writes them, in the order the release that holds them writes them.",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "types": {
+                      "type": "array",
+                      "description": "The Work Order types, as the manifest writes them, in the order the release that holds them writes them.",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "previous_request": {
+                  "type": "string",
+                  "enum": [
+                    "on_behalf_of",
+                    "as_itself",
+                    "vouch",
+                    "holds"
+                  ],
+                  "description": "On an upgrade that changes the grant's variant, the variant the installed release requested: the change is the variant, as such. Absent otherwise."
+                },
+                "decision_types": {
+                  "type": "array",
+                  "description": "On an on_behalf_of grant whose manifest names work_order/create and writes no types, the Work Order types the installation's own types = [...] lets the plugin file for the person (ADR-162 D8): each a type's canonical key or declared address, or #, every type the person may file, which the review highlights. Empty while the operator has named none; the plan refuses an approved grant whose list is empty. Absent on every other grant.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "types_left_to_installation": {
+                  "type": "boolean",
+                  "description": "On an upgrade, set when the grant of the same id in the installed release named its types and this release leaves them to the installation (ADR-162 D8). The request asks for more, so the decision re-opens; the types it named are in removed."
+                },
+                "widened": {
+                  "type": "array",
+                  "description": "The operator's own edits to the grant's decision that widen it against the decision the daemon runs on (ADR-162 D10 item 4), one per decision field. They re-open nothing, and the review highlights them. Absent when the edit widens nothing, and when the daemon runs on no approved decision of the grant.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string",
+                        "enum": [
+                          "workers",
+                          "types"
+                        ],
+                        "description": "The decision field the edit widens: workers, an as_itself grant's list of the workers its Work Orders may run as (ADR-141 D6); or types, the Work Order types an on_behalf_of grant whose manifest leaves them to the installation may file for the person, where gaining # is the widest move (ADR-162 D8)."
+                      },
+                      "added": {
+                        "type": "array",
+                        "description": "The entries the edit adds, as the installation writes them.",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "running": {
+                        "type": "array",
+                        "description": "The field as the decision the daemon runs on writes it. Empty when it names none.",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "added",
+                      "running"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "purpose",
+                "request",
+                "decision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "public_routes": {
+            "type": "array",
+            "description": "Paths the plugin's UI serves without a tera session, for a third party's webhook. Each is elevated: anyone who can reach the daemon can reach it.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "path_based_ui": {
+            "type": "string",
+            "description": "Why the installation's path-based UI opt-in (path_based_ui = true, ADR-140 D15) is elevated, when it opts in: it serves the plugin's UI under tera's own origin, where tera's session cookie reaches the plugin's script. Absent when the UI is served on the plugin's own subdomain, and when the plugin serves no UI."
+          },
+          "egress": {
+            "type": "array",
+            "description": "The domains the plugin's sandbox may reach: its process, and the tools its vault ships, which can reach no domain outside this list. An entry the manifest writes as a parameter, var.<name>, is listed as the value it resolves to for this installation and major (ADR-159 D7.1). Empty means no egress.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "egress_parameters": {
+            "type": "array",
+            "description": "Each egress entry the manifest writes as a parameter, with the parameter it resolves from and where that value came from. Absent when the manifest's allowed_domains names no parameter.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "domain": {
+                  "type": "string",
+                  "description": "The domain the entry resolves to, as egress lists it."
+                },
+                "parameter": {
+                  "type": "string",
+                  "description": "The parameter's name: a top-level property of the manifest's config_schema."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Where its value came from: installation \"<name>\" when the installation's config {} sets it, or default when it is the config_schema's default."
+                }
+              },
+              "required": [
+                "domain",
+                "parameter",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "limits": {
+            "type": "object",
+            "description": "The resources the manifest asks the sandbox for, for the plugin's process. Absent means the backend's defaults.",
+            "properties": {
+              "memory": {
+                "type": "string",
+                "description": "The memory ceiling as the manifest writes it."
+              },
+              "processes": {
+                "type": "integer",
+                "description": "The most processes the plugin's process tree may hold."
+              },
+              "open_files": {
+                "type": "integer",
+                "description": "The most file descriptors the plugin may hold open."
+              }
+            },
+            "additionalProperties": false
+          },
+          "tool_sandbox": {
+            "type": "object",
+            "description": "What the tools the plugin's vault ships ask for beyond the operator's default ceiling for a user vault's tools — wall clock, CPU time, memory and platform grants — with the installation's decision on it and what the operator's plugin-request-cap clips of it (ADR-140 D8 Amendment 2). Absent when the manifest declares no sandbox { tools {} }, whose tools run under exactly the operator's default ceiling.",
+            "properties": {
+              "limits": {
+                "type": "object",
+                "description": "Each limit the request names, as the manifest writes it. Absent when it names none.",
+                "properties": {
+                  "wallclock": {
+                    "type": "string",
+                    "description": "The wall-clock time one dispatch may run, as written."
+                  },
+                  "cpu_time": {
+                    "type": "string",
+                    "description": "The CPU time each process of a dispatch may use, as written."
+                  },
+                  "memory": {
+                    "type": "string",
+                    "description": "The memory a dispatch may use, as written."
+                  }
+                },
+                "additionalProperties": false
+              },
+              "grants": {
+                "type": "array",
+                "description": "The platform-grant tokens the request names, sorted. Each is elevated: a token changes the shape of the sandbox the vault's tools run in. Absent when it names none.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "toolchain_grants": {
+                "type": "array",
+                "description": "The platform-grant tokens the manifest's sandbox { toolchains {} } requests for every dispatch that mounts one of the vault's toolchains, sorted (ADR-176 D4). Each is elevated, as a tool's is, and the same decision covers it. Absent when it names none.",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approved",
+                  "declined",
+                  "undecided"
+                ],
+                "description": "The installation's decision on the request, as it stands against the request the manifest makes now: undecided when plugin.hcl records none, or records one about another request. Only an approved request widens anything; a declined one leaves the tools under the operator's default ceiling."
+              },
+              "reopened": {
+                "type": "boolean",
+                "description": "Set when plugin.hcl records a decision about a request the manifest no longer makes, which therefore stands undecided."
+              },
+              "request_digest": {
+                "type": "string",
+                "description": "The digest a decision on this request records in plugin.hcl's sandbox { request_digest }: sha256: followed by 64 lower-case hex digits, over the request normalized to seconds, bytes and sorted tokens."
+              },
+              "cap": {
+                "type": "string",
+                "description": "The sandbox policy profile that bounds what an approval can give: plugin-request-cap, read from the policy the daemon had loaded when the plan ran."
+              },
+              "clipped": {
+                "type": "array",
+                "description": "Each axis the cap clips: a limit above the cap's value on that axis, with the value it is clipped to, or a token the cap does not permit. Absent when the cap clips nothing.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "axis": {
+                      "type": "string",
+                      "enum": [
+                        "wallclock",
+                        "cpu_time",
+                        "memory",
+                        "platform",
+                        "toolchains.platform"
+                      ],
+                      "description": "The axis clipped: toolchains.platform is a token the toolchains request."
+                    },
+                    "requested": {
+                      "type": "string",
+                      "description": "What the request names on the axis: a limit as written, or one platform-grant token."
+                    },
+                    "clipped_to": {
+                      "type": "string",
+                      "description": "The cap's value a limit is clipped to. Absent for a token, which the cap does not permit at all."
+                    }
+                  },
+                  "required": [
+                    "axis",
+                    "requested"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "changed": {
+                "type": "array",
+                "description": "On an upgrade, how the request moved from the installed release's, axis by axis. Absent when it did not move, and on an install.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "axis": {
+                      "type": "string",
+                      "enum": [
+                        "wallclock",
+                        "cpu_time",
+                        "memory",
+                        "platform",
+                        "toolchains.platform"
+                      ],
+                      "description": "The axis that moved: toolchains.platform is the toolchains' request."
+                    },
+                    "previous": {
+                      "type": "string",
+                      "description": "A limit's value in the installed release, as written. Absent when it named none."
+                    },
+                    "current": {
+                      "type": "string",
+                      "description": "A limit's value in this release, as written. Absent when it names none."
+                    },
+                    "added": {
+                      "type": "array",
+                      "description": "The platform tokens this release adds.",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "removed": {
+                      "type": "array",
+                      "description": "The platform tokens this release removes.",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "axis"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "disclosures": {
+                "type": "array",
+                "description": "For each requested token whose registry entry says what it newly permits, that sentence, so the person deciding reads what a grant exposes beside the grant (ADR-176 ruling R4). Absent when no requested token carries one.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "description": "The platform-grant token."
+                    },
+                    "permits": {
+                      "type": "string",
+                      "description": "What a dispatch holding it can newly do, in one sentence."
+                    }
+                  },
+                  "required": [
+                    "token",
+                    "permits"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "decision",
+              "request_digest",
+              "cap"
+            ],
+            "additionalProperties": false
+          },
+          "sharing": {
+            "type": "object",
+            "description": "What may be shared through the plugin: each resource kind its manifest makes shareable, the installation's caps, and the grantee request with the installation's decision on it (ADR-174 D4, D5). Only the grantee request is decided; the rest is shown. Absent when neither this release nor, on an upgrade, the installed one shares a kind.",
+            "properties": {
+              "kinds": {
+                "type": "array",
+                "description": "Each resource kind the manifest makes shareable, in the manifest's order. Absent when this release shares no kind, which an upgrade that drops every shareable kind reviews by verbs_changed alone.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "The resource kind: the manifest's verbs.resource label."
+                    },
+                    "verbs": {
+                      "type": "array",
+                      "description": "The shareable verbs, in the manifest's order: what a share of one resource of the kind may grant.",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "conferred_by": {
+                      "type": "string",
+                      "description": "The share-conferring verb: what a person must hold on a resource to share it. Never shareable."
+                    },
+                    "default_expiry": {
+                      "type": "string",
+                      "description": "A share's expiry when its sharer names none, as the manifest writes it."
+                    },
+                    "clamped_to": {
+                      "type": "string",
+                      "description": "The installation's max_expiry, as written, when default_expiry is longer than it: a share of the kind made without an expiry takes this one. Absent when default_expiry is within max_expiry."
+                    },
+                    "grantees": {
+                      "type": "string",
+                      "enum": [
+                        "members",
+                        "guests",
+                        "addresses"
+                      ],
+                      "description": "The widest grantee class the kind requests: members when the manifest writes none."
+                    },
+                    "effective": {
+                      "type": "string",
+                      "enum": [
+                        "members",
+                        "guests",
+                        "addresses"
+                      ],
+                      "description": "The widest class a share of the kind may name as the installation stands: the narrower of grantees and the installation's grantees when the request is approved over the request the manifest makes now, and members otherwise."
+                    },
+                    "plugin_only": {
+                      "type": "boolean",
+                      "description": "Set when the manifest's sharing { plugin_only } keeps the kind's shares to the plugin: a share is made and extended only through the plugin acting for the person, and tera share create, tera share extend and their routes refuse the person acting directly (share_plugin_only). Revoke and leave stay open on every surface. Shown, not decided. Absent when a share of the kind is made and extended on any surface."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "verbs",
+                    "conferred_by",
+                    "default_expiry",
+                    "grantees",
+                    "effective"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "caps": {
+                "type": "object",
+                "description": "The installation's sharing {} as it runs, every attribute with its default where plugin.hcl writes none. Shown, not decided. Absent when this release shares no kind.",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "false refuses every share of the installation and stops every share it holds from deciding."
+                  },
+                  "grantees": {
+                    "type": "string",
+                    "enum": [
+                      "members",
+                      "guests",
+                      "addresses"
+                    ],
+                    "description": "The operator's ceiling on who a share may name. It decides nothing wider than members until the grantee request is approved."
+                  },
+                  "max_expiry": {
+                    "type": "string",
+                    "description": "The latest expiry a share may take, measured from the act, as written."
+                  },
+                  "max_active_per_sharer": {
+                    "type": "integer",
+                    "description": "The live shares one sharer may hold on the installation."
+                  },
+                  "max_pending_invitations_per_sharer": {
+                    "type": "integer",
+                    "description": "The shares one sharer may hold on the installation whose grantee is a pending invitation."
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "grantees",
+                  "max_expiry",
+                  "max_active_per_sharer",
+                  "max_pending_invitations_per_sharer"
+                ],
+                "additionalProperties": false
+              },
+              "request": {
+                "type": "object",
+                "description": "The grantee request and the installation's decision on it. Absent when no kind requests grantees wider than members, which asks for nothing and needs no decision: every kind is shared with members only.",
+                "properties": {
+                  "requests": {
+                    "type": "array",
+                    "description": "Each kind requesting grantees wider than members, sorted by kind: what the decision is made about.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "description": "The resource kind."
+                        },
+                        "grantees": {
+                          "type": "string",
+                          "enum": [
+                            "guests",
+                            "addresses"
+                          ],
+                          "description": "The class it requests."
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "grantees"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "declined",
+                      "undecided"
+                    ],
+                    "description": "The installation's decision on the request, as it stands against the request the manifest makes now: undecided when plugin.hcl records none, or records one about another request. Only an approved request shares a kind more widely than members. An undecided request refuses the plan (plugin_sharing_undecided), whose message says when a recorded decision was re-opened, so a computed plan shows it approved or declined."
+                  },
+                  "request_digest": {
+                    "type": "string",
+                    "description": "The digest a decision on this request records in plugin.hcl's sharing { request_digest }: sha256: followed by 64 lower-case hex digits, over the sorted (kind, grantees) pairs."
+                  },
+                  "wider_than_installation": {
+                    "type": "boolean",
+                    "description": "Set when a kind requests a wider class than the installation's grantees: the operator narrowed the request, and no share of that kind names a class wider than grantees."
+                  }
+                },
+                "required": [
+                  "requests",
+                  "decision",
+                  "request_digest"
+                ],
+                "additionalProperties": false
+              },
+              "verbs_changed": {
+                "type": "array",
+                "description": "On an upgrade, each kind whose shareable verbs moved from the installed release's, with the verbs added and removed: a kind that became shareable adds every verb, and one that stopped removes every verb. A share naming a removed verb stops deciding at once (ADR-174 D4). Absent when none moved, and on an install.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "The resource kind."
+                    },
+                    "added": {
+                      "type": "array",
+                      "description": "The shareable verbs this release adds, in its order.",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "removed": {
+                      "type": "array",
+                      "description": "The shareable verbs this release removes, in the installed release's order.",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "request_changed": {
+                "type": "array",
+                "description": "On an upgrade, each kind whose grantee request moved from the installed release's, from the comparison tera plugin upgrade reports. Any entry here re-opens the decision. Absent when none moved, and on an install.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "The resource kind."
+                    },
+                    "previous": {
+                      "type": "string",
+                      "enum": [
+                        "members",
+                        "guests",
+                        "addresses"
+                      ],
+                      "description": "The class the installed release requests: members where it does not share the kind or requests nothing wider."
+                    },
+                    "current": {
+                      "type": "string",
+                      "enum": [
+                        "members",
+                        "guests",
+                        "addresses"
+                      ],
+                      "description": "The class this release requests, members likewise."
+                    },
+                    "change": {
+                      "type": "string",
+                      "enum": [
+                        "added",
+                        "widened",
+                        "narrowed"
+                      ],
+                      "description": "added: the kind newly requests wider than members. widened: a request already wider grows. narrowed: one shrinks, to members included."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "previous",
+                    "current",
+                    "change"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "uncompared": {
+                "type": "string",
+                "description": "On an upgrade whose installed release's manifest does not read, why there is no comparison: verbs_changed and request_changed are then absent because nothing could be compared, not because nothing moved. Absent when the comparison was made, and on an install."
+              }
+            },
+            "additionalProperties": false
+          },
+          "placement": {
+            "type": "string",
+            "description": "Where the plugin runs, as the installation decides it: hosted on the daemon's own host, hosted on a named pool, or attached at its declared endpoint (it runs outside tera, authenticates with its key by private_key_jwt, and gets no UI route in this release). A hosted release that declares no process runs no instance, so it names where its tools are drawn instead: among the admitted members of its placement pool, or on every admitted host."
+          },
+          "verb_root": {
+            "type": "string",
+            "description": "The resource root the plugin's declared verbs are placed under, plugins/<vault>/<name>, with the vault and name escaped as a topic level (ADR-141 D12). Absent when the manifest declares no verbs."
+          },
+          "matching_roles": {
+            "type": "array",
+            "description": "Every role in the deployment, contributed by the binary or operator-authored, with an allow rule granting invoke on a resource pattern that matches one of the plugin's declared verbs (ADR-141 D12). A person bound to such a role can invoke those verbs the moment the plugin is installed, so a deployment's own wide grants are visible here. Absent when the manifest declares no verbs or no role matches them.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "description": "The role's canonical name, <vault>/roles/<name>."
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "engine"
+                  ],
+                  "description": "engine when the binary contributes the role (a standard role or repository), which no vault file defines and a deployment narrows with a role of its own bound beside it. Absent for a role a vault declares."
+                },
+                "actions": {
+                  "type": "array",
+                  "description": "The rule's actions, as the role writes them.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "resource": {
+                  "type": "string",
+                  "description": "The rule's resource pattern, as the role writes it."
+                },
+                "verbs": {
+                  "type": "array",
+                  "description": "The plugin's declared verbs the pattern matches, each <resource>/<verb> beneath the verb root, in the manifest's order.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "role",
+                "actions",
+                "resource",
+                "verbs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "ui_reach_root": {
+            "type": "string",
+            "description": "The resource a person must be granted invoke on to reach the plugin's UI through tera's reverse proxy: the plugin's root, plugins/<vault>/<name> (ADR-140 D15 Amendment 1). Absent when the plugin serves no UI, and when it is attached, which gets no UI route."
+          },
+          "ui_reach": {
+            "type": "array",
+            "description": "Every role in the deployment with an allow rule granting invoke on a resource pattern that matches ui_reach_root. Under a default-deny authorizer, only a person bound to one of these roles reaches the plugin's UI; signing in is not enough. Absent when ui_reach_root is, or when no role matches it.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "description": "The role's canonical name, <vault>/roles/<name>."
+                },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "engine"
+                  ],
+                  "description": "engine when the binary contributes the role (a standard role or repository), which no vault file defines and a deployment narrows with a role of its own bound beside it. Absent for a role a vault declares."
+                },
+                "actions": {
+                  "type": "array",
+                  "description": "The rule's actions, as the role writes them.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "resource": {
+                  "type": "string",
+                  "description": "The rule's resource pattern, as the role writes it."
+                }
+              },
+              "required": [
+                "role",
+                "actions",
+                "resource"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "contract_version": {
+            "type": "integer",
+            "description": "Deprecated: a major is what moves, and major_version names it (ADR-157 D4, D5). The vendored manifest's legacy contract_version after this transition, at the last integer value it stated: a level-5 manifest keeps it through the chain step that drops it. Absent when the release states none, as every release at manifest level 6 or above does (ADR-157 D4.1). Nothing decides on it.",
+            "deprecated": true
+          },
+          "previous_contract_version": {
+            "type": "integer",
+            "description": "Deprecated: previous_major_version names the move (ADR-157 D4, D5). The legacy contract_version the vault's current manifest states, at the last integer value it stated, when this transition changes the plugin's major and --park-dependents admitted the change over live dependents. Absent otherwise, and when that manifest states none. Nothing decides on it.",
+            "deprecated": true
+          },
+          "park_dependents": {
+            "type": "object",
+            "description": "The live Work Orders that depend on the plugin at another major, which --park-dependents admitted this transition's change of major over: each parks on its next call to the plugin with plugin-contract-moved until it is re-pinned (ADR-140 D14, ADR-157 D5, ADR-105 D7). Without --park-dependents the same transition is refused with plugin_dependents_live. Absent when no dependent is left to park.",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "description": "How many live Work Orders will park. Exact."
+              },
+              "work_orders": {
+                "type": "array",
+                "description": "Up to twenty of them, oldest pin first. Empty, never null, when count is 0.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The Work Order's id."
+                    },
+                    "type": {
+                      "type": "string",
+                      "description": "Its canonical work-order type."
+                    },
+                    "state": {
+                      "type": "string",
+                      "description": "Its state at plan time; never terminal."
+                    },
+                    "contract_version": {
+                      "type": "integer",
+                      "description": "Deprecated: major_version names what the pin recorded (ADR-157 D5). The plugin's legacy contract version its pin in force recorded, at the last integer value it stated; 0 when it recorded none.",
+                      "deprecated": true
+                    },
+                    "major_version": {
+                      "type": "string",
+                      "description": "The plugin's major version its pin in force recorded (ADR-157 D5). Absent when it recorded none: a pin frozen before pins recorded a major, which a change of major always moves, or a pin of a release whose version derived none."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "state",
+                    "contract_version"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when count exceeds what work_orders names."
+              }
+            },
+            "required": [
+              "count",
+              "work_orders"
+            ],
+            "additionalProperties": false
+          },
+          "workers": {
+            "type": "array",
+            "description": "Every worker the running deployment declares, each with what it may invoke, listed when the manifest requests an as_itself grant: the operator's workers = [...] on that grant chooses among them, and the work a plugin files as itself runs as the worker it names (ADR-141 D6). Absent when the manifest requests no as_itself grant.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The worker's name, as a grant's workers = [...] names it."
+                },
+                "grants": {
+                  "type": "string",
+                  "description": "What the worker may invoke, in one line: its permissions block's tools, connectors, topics, environments and volumes, or no permissions."
+                }
+              },
+              "required": [
+                "name",
+                "grants"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "code_origin": {
+            "type": "string",
+            "description": "Where the plugin's code comes from, the origin of the toolchain tera synthesizes from the manifest's artifacts (ADR-140 D5): fetched from the scheme and host of a remote url, fetched by digest from an oci origin's registry repository, or read from the installation's bundle. Absent when the manifest declares no artifacts."
+          },
+          "redirect_domains": {
+            "type": "array",
+            "description": "The hosts the manifest's remote or oci origin says its download may be redirected to, which the synthesized toolchain's fetch may reach beside the url's or the registry's own host (ADR-146 D6). Consenting to the installation consents to this egress. Absent when the manifest declares none.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "about": {
+            "type": "object",
+            "description": "What the manifest's about {} block says of the plugin and who publishes it (ADR-146 D5). Every field is the manifest's claim: nothing here is verified, and the publisher is not signed. Absent when the manifest has no about {} block, which the review renders as about: not stated.",
+            "properties": {
+              "description": {
+                "type": "string",
+                "description": "What the plugin is, in the author's sentence."
+              },
+              "license": {
+                "type": "string",
+                "description": "The plugin's licence, an SPDX expression as the manifest writes it."
+              },
+              "publisher": {
+                "type": "string",
+                "description": "Who publishes the plugin, as the manifest states it. Unsigned: it is a claim, not a verified identity."
+              },
+              "homepage": {
+                "type": "string",
+                "description": "The plugin's home page. Absent when the manifest names none."
+              },
+              "source": {
+                "type": "string",
+                "description": "Where the plugin's source is published. Absent when the manifest names none."
+              }
+            },
+            "required": [
+              "description",
+              "license",
+              "publisher"
+            ],
+            "additionalProperties": false
+          },
+          "fetch_secret": {
+            "type": "object",
+            "description": "The installation's audience = \"fetch\" secret and the origin it opens (ADR-146 D8): the credential the daemon presents when it downloads the plugin's own release, and never delivers to the plugin. A reference, never a value. Absent when the installation declares none.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The secret's name, its block label."
+              },
+              "ref": {
+                "type": "string",
+                "description": "Where the value is: the secret://, keychain:// or env:// reference the daemon resolves at fetch time. Never the value."
+              },
+              "origin": {
+                "type": "string",
+                "description": "The scheme and host the secret is presented to on its own: a remote url's own origin, or an oci origin's registry. A host a download is redirected to never receives it; an oci origin's redirect_domains hosts may still receive it as a token endpoint, which token_hosts lists. Absent when the release is bundled, which is read from the installation's bundle and presents it to nobody."
+              },
+              "token_hosts": {
+                "type": "array",
+                "description": "On an oci origin, the redirect_domains hosts the secret's basic pair may also be presented to, each as https://<host>: the registry's own 401 challenge may name a token endpoint on any of them, and the fetch answers it with the pair (ADR-146 D8). Absent on a remote url, whose secret goes to its own origin only, and on an oci origin with no redirect_domains.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "ref"
+            ],
+            "additionalProperties": false
+          },
+          "plugin_name": {
+            "type": "string",
+            "description": "The plugin the installation holds: its vendored manifest's label (ADR-156 D1). Equal to name unless the installation was named otherwise with tera plugin add --as, and the review then names both (ADR-156 D11)."
+          },
+          "major_version": {
+            "type": "string",
+            "description": "The major version of version after this transition — v<major>, or v0.<minor> before 1.0 (ADR-157 D3). Absent when version is not semver, rather than a major the release did not derive."
+          },
+          "previous_major_version": {
+            "type": "string",
+            "description": "The major version of previous_version, on an upgrade — v<major>, or v0.<minor> before 1.0 (ADR-157 D3). A change of major is the move a live dependent is refused over or parked by (ADR-157 D5); an upgrade within one major is not. Absent when there is no previous version, or it is not semver."
+          },
+          "vault_read": {
+            "type": "string",
+            "enum": [
+              "vendored",
+              "private",
+              "unread"
+            ],
+            "description": "How the plan read the release's vault (ADR-157 D9): vendored (the manifest pins the vault with vault_digest, and the bundle's vault/ — the only copy the mount reads — hashes to it and was read by this plan), private (the manifest pins no vault, and the bundle's own vault/ was read by this plan), or unread (the manifest pins no vault and the bundle carries none, so whatever vault the release's archive carries reaches the daemon only after the apply and was not read; tera plugin upgrade to a release carrying vault_digest vendors it). Absent when the release has neither a vault nor an archive that could carry one."
+          },
+          "compatibility": {
+            "type": "object",
+            "description": "The compatibility verdict between the installed release and this one (ADR-157 D8, D9.6). Present on an upgrade, and on any change to a release whose vault is unread, which is never reported compatible. Absent otherwise.",
+            "properties": {
+              "verdict": {
+                "type": "string",
+                "enum": [
+                  "unchecked",
+                  "compatible",
+                  "major",
+                  "mislabelled",
+                  "unreferenced_removals"
+                ],
+                "description": "unchecked: the plan did not compare the two releases, and makes no claim that they are compatible; reason says why. compatible: both releases' vendored bytes were projected and the target holds to the installed release by ADR-157 D6's allow-list within one major; additions lists what it adds. major: the two releases are at different majors, a major move, so the allow-list is not run and a live dependent is governed by plugin_dependents_live (ADR-157 D8.3). mislabelled: the two releases share a major and the allow-list fails, so the release claims a minor and carries a major; breaking names each edit, and the plan refuses it with plugin_release_mislabelled (ADR-157 D8.2). unreferenced_removals: a downgrade within the installed release's major whose every breaking edit removes a recipe nothing refers to — no edge from any vault or installed plugin, no live Work Order's pin, no live Work Order filed against it — so the plan admits it (ADR-158 D8); removed names each recipe."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why the verdict is what it is, in one sentence: for unchecked, which release's vault is unread or why the plan could not compare; for the others, which releases were compared, or which majors moved."
+              },
+              "additions": {
+                "type": "array",
+                "description": "On compatible: every addition ADR-157 D6's allow-list admitted, in the comparison's order — a recipe added, a property added to a schema by the schema's role, a member added to a set that may grow. Absent when the release adds nothing, as one that changes only prose does, and on every other verdict.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "The recipe's kind directory within the release's vault (work-order-types, tools, ...), or manifest for the manifest's config_schema, or served-tools for a tool the plugin's process serves."
+                    },
+                    "stem": {
+                      "type": "string",
+                      "description": "The recipe's stem within the release's vault, or the served tool's name. Absent for the manifest."
+                    },
+                    "attribute": {
+                      "type": "string",
+                      "description": "The contract attribute or block the edit is in. Absent when the whole recipe was added or removed."
+                    },
+                    "pointer": {
+                      "type": "string",
+                      "description": "The RFC 6901 JSON pointer within the attribute's schema at the keyword or property that changed. Absent outside a schema."
+                    },
+                    "change": {
+                      "type": "string",
+                      "description": "What changed."
+                    },
+                    "sentence": {
+                      "type": "string",
+                      "description": "ADR-157 D6's sentence for the edit: the kind and stem, the attribute, the pointer, and what changed — the one tera plugin pack prints for the same edit."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "change",
+                    "sentence"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "breaking": {
+                "type": "array",
+                "description": "On mislabelled: every edit ADR-157 D6's allow-list does not admit, in the comparison's order. Absent on every other verdict.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "The recipe's kind directory within the release's vault (work-order-types, tools, ...), or manifest for the manifest's config_schema, or served-tools for a tool the plugin's process serves."
+                    },
+                    "stem": {
+                      "type": "string",
+                      "description": "The recipe's stem within the release's vault, or the served tool's name. Absent for the manifest."
+                    },
+                    "attribute": {
+                      "type": "string",
+                      "description": "The contract attribute or block the edit is in. Absent when the whole recipe was added or removed."
+                    },
+                    "pointer": {
+                      "type": "string",
+                      "description": "The RFC 6901 JSON pointer within the attribute's schema at the keyword or property that changed. Absent outside a schema."
+                    },
+                    "change": {
+                      "type": "string",
+                      "description": "What changed."
+                    },
+                    "sentence": {
+                      "type": "string",
+                      "description": "ADR-157 D6's sentence for the edit: the kind and stem, the attribute, the pointer, and what changed — the one tera plugin pack prints for the same edit."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "change",
+                    "sentence"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "removed": {
+                "type": "array",
+                "description": "On unreferenced_removals: each recipe the downgrade removes, in the comparison's order, every one of which nothing refers to (ADR-158 D8). Absent on every other verdict.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "The recipe's kind directory within the release's vault (work-order-types, tools, ...), or manifest for the manifest's config_schema, or served-tools for a tool the plugin's process serves."
+                    },
+                    "stem": {
+                      "type": "string",
+                      "description": "The recipe's stem within the release's vault, or the served tool's name. Absent for the manifest."
+                    },
+                    "attribute": {
+                      "type": "string",
+                      "description": "The contract attribute or block the edit is in. Absent when the whole recipe was added or removed."
+                    },
+                    "pointer": {
+                      "type": "string",
+                      "description": "The RFC 6901 JSON pointer within the attribute's schema at the keyword or property that changed. Absent outside a schema."
+                    },
+                    "change": {
+                      "type": "string",
+                      "description": "What changed."
+                    },
+                    "sentence": {
+                      "type": "string",
+                      "description": "ADR-157 D6's sentence for the edit: the kind and stem, the attribute, the pointer, and what changed — the one tera plugin pack prints for the same edit."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "change",
+                    "sentence"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "served_tools": {
+                "type": "string",
+                "enum": [
+                  "compared",
+                  "not_compared"
+                ],
+                "description": "Whether the comparison covered the tools the plugin's process serves (ADR-157 D9.5): compared when both releases pin their served tools with serves.tools.digest and the bundles vendor them, not_compared when either pins none, which the comparison then leaves out on both sides. Absent when the releases were not compared."
+              }
+            },
+            "required": [
+              "verdict",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "connections": {
+            "type": "array",
+            "description": "Every connection the plugin's vault carries, in credential-key order, each with the hosts its credential is injected for, whose credential it is and the installation's decision (ADR-159 D7.4). Absent when the vault carries none, and when vault_read is unread: the plan did not read that vault, so its connections, if any, are unreviewed and the daemon delivers none of them until each is decided.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "The connection's credential key, plugin.<installation>/connections/<stem>: what a person sets the credential under and what the installation's connection \"<stem>\" block decides."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "What the connection is for, in its author's words. Absent when the recipe says nothing."
+                },
+                "hosts": {
+                  "type": "array",
+                  "description": "The address of each host route, in declared order: the hosts the proxy injects the credential for. Empty, never null, when the connection has no host route.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "git_hosts": {
+                  "type": "array",
+                  "description": "The address of each git route, in declared order: the hosts whose HTTPS git traffic the proxy authenticates with the credential. Absent when the connection has no git route.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "passthrough": {
+                  "type": "array",
+                  "description": "The hosts the connection reaches with no credential at all. Absent when it names none.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "refused": {
+                  "type": "array",
+                  "description": "Each host route that refuses requests, in declared order, with the requests to it the proxy never forwards with the credential. Absent when no route refuses any.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "host": {
+                        "type": "string",
+                        "description": "The route's resolved address."
+                      },
+                      "requests": {
+                        "type": "array",
+                        "description": "Each refused request, <METHOD> <path>, with * matching one path segment, as the recipe declares them.",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "host",
+                      "requests"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "holders": {
+                  "type": "array",
+                  "description": "Whose credential a dispatch uses for the connection, as each of the plugin's own work-order types chooses it (ADR-148 D3): a person's own (filer) or the worker's (worker). Absent when no type of the plugin chooses, which the review says rather than guessing.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "description": "The plugin's work-order type that chooses, by its stem."
+                      },
+                      "holder": {
+                        "type": "string",
+                        "enum": [
+                          "filer",
+                          "worker"
+                        ],
+                        "description": "filer: the person who filed the Work Order, with their own credential. worker: the worker that runs it, with the credential the worker binds."
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "holder"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "raw_delivery": {
+                  "type": "boolean",
+                  "description": "True when the recipe sets raw_delivery = true: the credential may enter a sandbox itself, not only through the proxy. Such a connection is elevated."
+                },
+                "elevated": {
+                  "type": "string",
+                  "description": "Why the connection is elevated, when it is: its credential may be delivered raw into a sandbox. Absent on one that is not."
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "approved",
+                    "declined",
+                    "undecided"
+                  ],
+                  "description": "The installation's decision on the connection as it is carried now. A decision recorded about an earlier form of the connection reads undecided, with reopened set."
+                },
+                "reopened": {
+                  "type": "boolean",
+                  "description": "The installation records a decision on this connection, but about a different form of it: its routes or hosts changed underneath the decision, so the decision no longer stands."
+                },
+                "parameters": {
+                  "type": "array",
+                  "description": "Each of the installation's parameters the connection's recipe reads — a route's address = var.<name>, or a ${var.<name>} in a header value (ADR-159 D6.3) — with the value it resolved to and where that came from, sorted by name. The hosts above are already the resolved addresses. Read from the record the loader keeps where each value is read (ADR-159 D3 item 3), never recomputed. Absent when the connection reads none.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "The parameter, as var.<name> names it."
+                      },
+                      "value": {
+                        "type": "string",
+                        "description": "The value it resolved to, as JSON."
+                      },
+                      "source": {
+                        "type": "string",
+                        "description": "Where the value came from: installation \"<name>\" when the installation's config {} sets it, or default when it is config_schema's default."
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "value",
+                      "source"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "hosts",
+                "decision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "toolchains": {
+            "type": "array",
+            "description": "Every toolchain the plugin's vault carries, by name: what its provisioning fetches and from where, the hosts it reaches, the commands it runs, and the connections a dispatch using it reaches. Absent when the vault carries none, and when vault_read is unread.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The toolchain's name: its recipe's stem."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "What the toolchain is, in its author's words. Absent when the recipe says nothing."
+                },
+                "tier": {
+                  "type": "string",
+                  "description": "How the toolchain arrives: provisioned (fetched into a store), detected or another declared tier."
+                },
+                "fetches": {
+                  "type": "array",
+                  "description": "Each archive its provisioning downloads, per platform, as a url template with its ${version} token intact. Absent when it fetches nothing.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "platform": {
+                        "type": "string",
+                        "description": "The platform the url serves, <os>/<arch>. Absent for a url serving every platform."
+                      },
+                      "url": {
+                        "type": "string",
+                        "description": "The url template, its ${version} and ${platform.*} tokens intact."
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "runs": {
+                  "type": "array",
+                  "description": "Each command its provisioning runs, in step order, with its arguments. Absent when it runs none, which a fetch-only toolchain does not.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "hosts": {
+                  "type": "array",
+                  "description": "The hosts its provisioning may reach, the provision block's network allowed_domains, checked on every redirect hop. Absent when it declares none.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "connections": {
+                  "type": "array",
+                  "description": "The connections, by recipe stem, whose injecting proxy a dispatch using the toolchain reaches. Absent when it names none.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "key": {
+                  "type": "string",
+                  "description": "The key the toolchain lock records it under and tera toolchain use takes, <name>@<installation alias>. Absent when the installation's release derives no major to key it by."
+                },
+                "vouched_version": {
+                  "type": "string",
+                  "description": "The one version this release's recipe vouches for: what tera config apply --provision designates when the lock designates none. It is not a designation. Absent when the recipe vouches for none, and then a version is designated with tera toolchain use."
+                },
+                "pinned_versions": {
+                  "type": "array",
+                  "description": "Each version the recipe's fetch steps pin a digest for, sorted. Absent when its digests are keyed on no version.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "designated_version": {
+                  "type": "string",
+                  "description": "The version this deployment's toolchain lock designates under key when the plan was computed. Absent when it designates none, and absent when the plan did not read the lock (tera plugin add before any plan, or a daemon with no lock): read absent as unknown, not as undesignated, unless the plan is the daemon's."
+                },
+                "previous_key": {
+                  "type": "string",
+                  "description": "On an upgrade that changes the plugin's major, the key the installed release's toolchain is locked under. The new major's key is a new key: its first tera config apply --provision designates vouched_version on it, and the designation under previous_key is left as it is. Absent on every other change."
+                },
+                "designated_unpinned": {
+                  "type": "boolean",
+                  "description": "True when this deployment runs deployment_profile = \"server\" and designated_version is not among pinned_versions: a first fetch of it on a platform the lock holds no hash for is refused, so a dispatch on a runner of that platform fails (ADR-109 D20). Absent otherwise."
+                }
+              },
+              "required": [
+                "name",
+                "tier"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "tools": {
+            "type": "array",
+            "description": "Every tool the plugin's vault ships, by name: what a dispatch of it runs and the toolchains it runs with. Absent when the vault ships none, and when vault_read is unread.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The tool's name: its recipe's stem."
+                },
+                "runs": {
+                  "type": "string",
+                  "description": "What a dispatch of it runs: its entry, the vault's own file, under its runtime; or its runtime alone when it names no entry."
+                },
+                "toolchains": {
+                  "type": "array",
+                  "description": "The toolchains it runs with, as the recipe writes them. Absent when it names none.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "runs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "injects": {
+            "type": "array",
+            "description": "Every connection a work-order type of the plugin's vault names, by the key the type writes, with whose credential a dispatch of the type is given for it. A connection another installation carries is named by its declared address; its hosts and its decision are that installation's review. Absent when no type names one, and when vault_read is unread.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "The work-order type: its recipe's stem."
+                },
+                "connection": {
+                  "type": "string",
+                  "description": "The connection, as the type writes it."
+                },
+                "holder": {
+                  "type": "string",
+                  "enum": [
+                    "worker",
+                    "filer"
+                  ],
+                  "description": "Whose credential a dispatch of the type is given: the owning worker's (worker), or the person's who filed it (filer)."
+                }
+              },
+              "required": [
+                "type",
+                "connection",
+                "holder"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "loans": {
+            "type": "array",
+            "description": "Every off-tera work-order type of the plugin's vault that lends its delegation subject (lends_subject_to), with the child types it lends to (ADR-135 D4 Amendment 1). A child of one of them, filed by this plugin as itself under work a person filed or released through this plugin, acts as that person: its filer {} connections use that person's credential. Absent when no type lends, and when vault_read is unread.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "The off-tera work-order type: its recipe's stem."
+                },
+                "lends_to": {
+                  "type": "array",
+                  "description": "The child types it lends its delegation subject to, by bare name in the same vault, as the type writes them.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "type",
+                "lends_to"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "dependencies": {
+            "type": "array",
+            "description": "Every plugin the manifest builds on (builds_on), in the manifest's order, each with the installation it is bound to and the read of that installation's recipes the plugin's principal is compiled for it (ADR-158 D2, D5 item 7). A plan whose dependency is unbound, wrongly bound or at a major its installation does not provide is refused, so every dependency listed here is bound. Absent when the manifest builds on none.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "plugin": {
+                  "type": "string",
+                  "description": "The plugin built on: the manifest's builds_on label."
+                },
+                "major_version": {
+                  "type": "string",
+                  "description": "The major version of it the manifest declares. The author's: a binding chooses an installation, never a major."
+                },
+                "binding": {
+                  "type": "string",
+                  "enum": [
+                    "explicit",
+                    "default"
+                  ],
+                  "description": "How it is bound: explicit, by the installation's own builds_on \"<plugin>\" { installation } block in plugin.hcl; or default, to the installation named after the plugin, which holds it."
+                },
+                "installation": {
+                  "type": "string",
+                  "description": "The installation it is bound to, whose release at major_version the plugin's references to the dependency resolve to."
+                },
+                "version": {
+                  "type": "string",
+                  "description": "The version of the release the bound installation holds. Absent when the plan does not know it."
+                },
+                "read": {
+                  "type": "string",
+                  "description": "The rule the plugin's principal is compiled for this dependency: invoke on vault:read:plugin.<installation>/#, the read of the bound installation's recipes and nothing else (ADR-158 D5 item 7)."
+                }
+              },
+              "required": [
+                "plugin",
+                "major_version",
+                "binding",
+                "installation",
+                "read"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "served_tools": {
+            "type": "string",
+            "enum": [
+              "checked",
+              "unchecked"
+            ],
+            "description": "Whether the daemon holds the plugin's process to the tools its release declares (ADR-157 D9.5): checked (the manifest pins its served tools with serves.tools.digest, and the plugin is not up until its tools/list serves exactly those names and schemas; any difference parks it down, naming the first), or unchecked (the release pins none, so what the process serves is not compared with anything). Absent when the installation runs no hosted process: an attached plugin runs outside tera and is not checked, and a release that declares no process serves no tools of its own."
+          },
+          "retained": {
+            "type": "object",
+            "description": "The major this transition moves the installation off and retains beside its new one, and every referrer of it (ADR-158 D6 item 1, D7 items 2 and 3): vaults whose builds-on declaration names it, plugins whose bound dependency names it, non-terminal Work Orders whose pin records it, and non-terminal Work Orders filed against its release address. A retained major is never refused for its referrers. Absent when the transition retains no major.",
+            "properties": {
+              "major_version": {
+                "type": "string",
+                "description": "The major retained: v<major>, or v0.<minor> before 1.0 (ADR-157 D3)."
+              },
+              "referrers": {
+                "type": "array",
+                "description": "Each builds-on declaration and bound dependency naming the retained major, declarations first, each in name order: a declaration read from the after state, or, for a vault whose tree the plan cannot read, the one its last successful load recorded. Empty, never null, when there is none.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "declares",
+                        "depends"
+                      ],
+                      "description": "declares: a vault's .tera/builds-on/ declaration names the major. depends: a plugin installation's manifest builds on the major, bound to this installation."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "For declares, the declaring vault. For depends, the dependent installation."
+                    },
+                    "major_version": {
+                      "type": "string",
+                      "description": "For depends, the dependent installation's major whose manifest builds on the retained major: its current major or one it retains. Absent for declares."
+                    },
+                    "file": {
+                      "type": "string",
+                      "description": "The file that names the retained major: the declaration, or the dependent installation's plugin.hcl that binds it."
+                    },
+                    "recorded": {
+                      "type": "boolean",
+                      "description": "For declares, true when the plan could not read the vault's declarations — a tracked vault degraded, or not yet fetched — so the declaration is the one its last successful load recorded. Absent when the after state was read."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "name",
+                    "file"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "pinned_count": {
+                "type": "integer",
+                "description": "How many non-terminal Work Orders' pins in force record the retained major. Exact. Absent when none does, and when the daemon runs no Work Order store."
+              },
+              "oldest_pinned": {
+                "type": "string",
+                "description": "The oldest of those Work Orders, by its time-ordered id. Absent when pinned_count is."
+              },
+              "filed_count": {
+                "type": "integer",
+                "description": "How many non-terminal Work Orders whose stored type is a release address of the retained major, and whose pin does not record it — an unpinned Work Order filed against the major among them (ADR-158 D7 item 2.4). Exact. Absent when none is, and when the daemon runs no Work Order store."
+              },
+              "oldest_filed": {
+                "type": "string",
+                "description": "The oldest of those Work Orders, by its time-ordered id. Absent when filed_count is."
+              }
+            },
+            "required": [
+              "major_version",
+              "referrers"
+            ],
+            "additionalProperties": false
+          },
+          "config_carry": {
+            "type": "array",
+            "description": "On a change of major that retains the old one, each configuration parameter of the new major relative to the retained major's config (ADR-158 D7 item 5): pre-filled (a copy of the retained major's value), defaulted (the new major's config does not set it), dropped (the retained major sets it and the new major does not carry it: absent from its config_schema, or retyped) or set (the new major's config sets a value the retained major's does not hold). Configuration is per major: nothing here is shared between them. Absent when the transition retains no major.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The parameter's name."
+                },
+                "carry": {
+                  "type": "string",
+                  "enum": [
+                    "prefilled",
+                    "defaulted",
+                    "dropped",
+                    "set"
+                  ],
+                  "description": "What became of it in the new major's config, relative to the retained major's: prefilled, defaulted, dropped or set."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why, in a clause: whose value it holds, which default applies, or why the new major does not carry it."
+                }
+              },
+              "required": [
+                "name",
+                "carry",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "major_grants": {
+            "type": "array",
+            "description": "At a change of major, every operator-written grant whose declared address resolves to the major the installation moves off in the current tree (ADR-158 D10 item 4): a role resource in declared or ADR-142 escaped form, a role_binding binding such a role, or an approved as_itself grant's type in another installation's manifest. Each is following (its writer's builds-on moves to the new major in this transition) or staying (its writer still names the old major, so the grant reaches only that major and no type of the new one). Information only: nothing is refused or admitted because of it. The plugin's own grants, which recompile, and cross-vault reads, which name the installation, are not listed. Absent when the transition changes no major or no such grant exists.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "role",
+                    "role_binding",
+                    "as_itself"
+                  ],
+                  "description": "role: a role grant's resource. role_binding: a binding that binds such a role. as_itself: a type an approved as_itself grant of another installation names."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "For role and role_binding, the recipe's canonical name. For as_itself, the installation and its major whose manifest holds the grant, and the grant's id."
+                },
+                "file": {
+                  "type": "string",
+                  "description": "The file the grant is written in: the role, the binding, or the installation's plugin.hcl that approves the grant."
+                },
+                "written": {
+                  "type": "string",
+                  "description": "For role, the resource as written. For role_binding, the role it binds as written. For as_itself, the type entry as written."
+                },
+                "resolved": {
+                  "type": "string",
+                  "description": "What the grant resolves to in the current tree, naming the old major: the resolved resource or type key, or, for role_binding, the bound role's canonical name."
+                },
+                "standing": {
+                  "type": "string",
+                  "enum": [
+                    "following",
+                    "staying"
+                  ],
+                  "description": "following: the writer's builds-on moves to the new major in this transition, so the grant follows. staying: the writer still names the old major, so the grant reaches only that major."
+                }
+              },
+              "required": [
+                "kind",
+                "name",
+                "file",
+                "written",
+                "resolved",
+                "standing"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "buildable": {
+            "type": "boolean",
+            "description": "Whether repositories may build on the installation, as its plugin.hcl states it (buildable, ADR-158 D4). true: a vault holding vaults/build-on/<kind> may read the installation's recipes of each kind in build_on_kinds without an explicit vault:read grant. false: a vault reads them only by an explicit vault:read grant, which is what a plugin.hcl written before the attribute existed reads as. An explicit grant admits a read, and an explicit system-vault deny refuses one, either way. A plugin's own principal reads its bound dependencies by construction and is not reached by it."
+          },
+          "build_on_kinds": {
+            "type": "array",
+            "description": "When buildable is true, the kinds a building vault may then read, each by its vaults/build-on/<kind> ability (ADR-158 D5 item 4): work-order-types, workflows, skills, inline-skills and toolchains. Absent when buildable is false.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removed_majors": {
+            "type": "array",
+            "description": "Each major this transition removes from the installation because nothing refers to it (ADR-158 D7 items 2 and 3): a retained record the desired tree deletes, or the major a qualifying change of major moves off without retaining it. A major that still has a referrer is not removed: the plan refuses its removal with plugin_major_not_retained, naming each referrer. Absent when the transition removes no major.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parameters": {
+            "type": "array",
+            "description": "Every recipe of the installation's vault that reads a plugin parameter (var.<name>), per installed major, with each parameter's resolved value and its source: installation, when the installation's config {} sets it, or default, when it falls back to the config_schema's default (ADR-159 D3 item 3). It is the record the vault's resolver kept while this plan decoded the vault, the record tera workorder types and the pin read too. Absent when no recipe of the vault reads a parameter, and when vault_read is unread.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "major": {
+                  "type": "string",
+                  "description": "The major whose vault the recipe is in: the installation's current major, or a retained one, each resolved against its own config (ADR-159 D3 item 5). Absent when the release's version derives no major."
+                },
+                "recipe": {
+                  "type": "string",
+                  "description": "The recipe's canonical name, <release alias>/<kind>/<stem>."
+                },
+                "params": {
+                  "type": "array",
+                  "description": "Each parameter the recipe reads, sorted by name.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "The parameter: a top-level property of the plugin's config_schema."
+                      },
+                      "value": {
+                        "description": "The resolved value, as JSON; its shape is the plugin's, declared by its config_schema property."
+                      },
+                      "source": {
+                        "type": "string",
+                        "enum": [
+                          "installation",
+                          "default"
+                        ],
+                        "description": "installation: the installation's config {} sets the value. default: the installation sets none and the value is the config_schema's default."
+                      },
+                      "installation": {
+                        "type": "string",
+                        "description": "The installation that sets the value. Absent when source is default."
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "value",
+                      "source"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "recipe",
+                "params"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "plugin",
+          "vault",
+          "name",
+          "change",
+          "version",
+          "grants",
+          "egress",
+          "placement",
+          "buildable"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "exec_not_granted": {
+      "type": "array",
+      "description": "Vaults other than the system vault into which this transition brings newly arriving executable surface — tool recipes, skill scripts, skill-bundled tool recipes — while the vault's principal does not hold the exec ability (ADR-147 D7). Advisory at this weight: apply writes the files and the mount withholds them, degraded, until a system-vault binding grants the ability. A caller that applies with no operator watching tests this field rather than parsing warnings. Absent when no vault qualifies.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "type": "string",
+            "description": "The vault the executable surface arrives in."
+          },
+          "ability": {
+            "type": "string",
+            "description": "The ability the vault's principal does not hold: always vaults/exec."
+          },
+          "paths": {
+            "type": "array",
+            "description": "Sorted vault-relative paths of the newly arriving executable surface.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "refusal": {
+            "type": "string",
+            "description": "The ability's refusal, in the words the mount degrades each withheld entry by: it names the vault, the ability and the system-vault role_binding that would grant it."
+          }
+        },
+        "required": [
+          "vault",
+          "ability",
+          "paths",
+          "refusal"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "provision_not_granted": {
+      "type": "array",
+      "description": "Vaults other than the system vault and plugin vaults into which this transition brings a toolchain with an exec provisioning step — a new toolchain, or one that newly gains the step — while the vault's principal does not hold the provision ability (ADR-147 D6). Advisory at this weight: apply writes the declaration and provisioning refuses the step until a system-vault binding grants the ability. A caller that applies with no operator watching tests this field rather than parsing warnings. Absent when no vault qualifies.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "type": "string",
+            "description": "The vault the toolchains arrive in."
+          },
+          "ability": {
+            "type": "string",
+            "description": "The ability the vault's principal does not hold: always vaults/provision."
+          },
+          "toolchains": {
+            "type": "array",
+            "description": "Sorted canonical names (<vault>/toolchains/<name>) of the toolchains whose exec provisioning step newly arrives.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "refusal": {
+            "type": "string",
+            "description": "The ability's refusal, in the words the provisioning gate refuses the step by: it names the vault, the ability and the system-vault role_binding that would grant it."
+          }
+        },
+        "required": [
+          "vault",
+          "ability",
+          "toolchains",
+          "refusal"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "triggers_withheld": {
+      "type": "array",
+      "description": "Plugin triggers this transition leaves unable to run as their installation is configured, each refused alone (ADR-161 D11 item 6): a parameter the trigger reads has no value, or the worker it runs as binds no credential for a connection the type it creates gives to the worker. Apply lands the rest of the transition, and the mount withholds only these triggers, degraded, so none of them fires. Setting the parameters and binding the credentials is the whole repair: the next plan admits the trigger. A trigger whose worker resolves to default is not here — that refuses the whole plan (trigger_default_worker). Absent when no trigger qualifies.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "description": "The trigger's canonical name, plugin.<installation>.v<N>/triggers/<stem>."
+          },
+          "installation": {
+            "type": "string",
+            "description": "The plugin installation whose vault holds the trigger."
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "trigger_worker_unset",
+              "trigger_parameter_unset",
+              "trigger_worker_unbound"
+            ],
+            "description": "Which refusal this is: trigger_worker_unset when the parameter naming its worker has no value, trigger_parameter_unset when another parameter it reads has none, trigger_worker_unbound when its worker binds no credential for a connection its type gives to the worker. A trigger with both an unset parameter and an unbound worker carries the parameter's code: its worker is only known once the parameters are."
+          },
+          "worker": {
+            "type": "string",
+            "description": "The worker the trigger runs as, when its parameters resolve it."
+          },
+          "unset": {
+            "type": "array",
+            "description": "Each parameter the trigger reads that has no value: the plugin gives it no default and the installation's config {} in .tera/plugins/<installation>/plugin.hcl sets none.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unbound": {
+            "type": "array",
+            "description": "Each connection key the type the trigger creates gives to the worker (connection \"<key>\" { worker {} }) for which the worker binds no credential: a connection \"<key>\" { value = ... } block in the worker's .tera/workers/<worker>.hcl is what binds it.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string",
+            "description": "The refusal in plain words, naming each of the above and the repair."
+          }
+        },
+        "required": [
+          "trigger",
+          "installation",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

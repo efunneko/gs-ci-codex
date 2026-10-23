@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/role-binding/v1",
+  "title": "Role binding recipe (v1)",
+  "description": "Schema for `.tera/role-bindings/<name>.hcl` recipes per ADR-060 §1. A role binding maps subjects — principals and/or IdP group claims — to a set of roles. At config load, bindings + roles compile to an ordered ACL ruleset. The recipe declares a single `role_binding` block whose label becomes `name`.",
+  "type": "object",
+  "required": [
+    "version",
+    "name",
+    "roles"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1",
+      "description": "Per-recipe grammar version. Required; this schema applies when version is v1."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bare binding name (the HCL block label). The loader namespaces it as <vault-id>/role-bindings/<name>."
+    },
+    "principals": {
+      "type": "array",
+      "description": "Explicit principal identities bound to the roles. An entry containing @ is read as a person's email address and is resolved through the user directory at ACL compile time to the opaque tera-issued id a token carries (ADR-135 D2); every other entry is used verbatim. Supports * and prefix* per ADR-010 principal matching. An address no user record carries, or one more than one record claims, is refused by tera config plan and apply when the apply writes the binding (ADR-148 ruling 8); the daemon load still loads such a binding, warns and grants nothing for that address, and an ambiguous address is never resolved by picking one (ADR-135 D11).",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "idp_group": {
+      "type": "string",
+      "description": "Single IdP group/role claim (OIDC/SAML) bound to the roles: the enterprise golden path (ADR-060 §1)."
+    },
+    "idp_groups": {
+      "type": "array",
+      "description": "List form of idp_group. Merged with idp_group when both are present.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "guests": {
+      "type": "boolean",
+      "description": "The roles reach every guest (ADR-171 D8). A guest holds nothing by default: an allow reaches a guest only when it names the guest class, which this attribute does, or names that guest exactly in principals (an address resolves through the directory to the live guest id). A * or prefix* principal and a group reach no guest. The binding subjects stay the union of principals, the groups and the guest class, and false is the same as not writing it. tera config plan reports, without refusing, a binding with guests = true whose roles grant a wildcard over # or api/v1/# (every guest would hold the operator plane) or grant api/v1/users/invite (which a guest can never use, ADR-171 D6)."
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Roles granted to the subjects. Bare names resolve against the binding own vault; qualified <vault-id>/roles/<name> references resolve against the named vault.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

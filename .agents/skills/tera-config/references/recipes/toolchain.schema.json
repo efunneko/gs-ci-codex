@@ -1,0 +1,916 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/toolchain/v3",
+  "title": "Toolchain recipe (v3)",
+  "description": "Schema for `.tera/toolchains/<name>.hcl` recipes per [ADR-109](../adr/ADR-109-the-toolchain-provisioning-tier.md) D3/D4. A **toolchain** is the software a dispatch needs that is *not the repository* — a browser build, a module cache, a wheelhouse, a pinned runtime — declared once for the deployment and mounted read-only into the dispatches that ask for it. The recipe is a *declaration* and never a version pin: D4 puts versions in the deployment lockfile and demand in the repository the work is about, read by that ecosystem's own resolver. The built-ins are seeded rather than privileged, so a user vault contributes a definition through the identical loader. A bare name resolves in the vault of the recipe that wrote it, else in the system vault (ADR-147 D6), so a vault's own definition serves that vault's recipes and never replaces a system one for anyone else. Guidance for using a toolchain ships beside it as a skill bundle under the toolchain's own name in the same vault (`.tera/skills/<name>/SKILL.md`): every dispatch that mounts the toolchain is handed that file read-only and told its path with the toolchain (ADR-167 D8), and no attribute declares it. The recipe declares a single `toolchain` block whose label becomes `name`.\n\n**When to declare one at all (ADR-109 D21).** A toolchain wins where it is *declared and provisioned*; everything else a dispatch runs resolves off the host's own `PATH` — `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin` — at whatever version that machine happens to carry, chosen by the machine rather than by this deployment and able to change with no change to any configuration here. That floor is deliberate and it is not going away: software only practical to obtain from a package manager has to keep working. So the rule is **conditional and is not \"declare a toolchain for everything\"** — most of the host path is fine. It is this: *the moment you care which version runs, a toolchain is the only thing that answers.* A deployment that declares `playwright` and not `node` gets a provisioned browser and the machine's Node, and both are correct; only one of them is pinned. A dispatch is told the same thing at run time, so a session can tell which of its tools came from a store and which from the machine.",
+  "type": "object",
+  "required": [
+    "version",
+    "name",
+    "tier",
+    "version_key"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v3",
+      "description": "Per-recipe grammar version. Required; this schema applies when version is v3. The kind moved to v2 with the tool kind, because provision { mcp_servers {} } is the tool kind's own block: its server credential ATTRIBUTE became the credential { spec | filer } block union (ADR-135 D19). It moved to v3 when a connection's proxy route gained a name beside its address (ADR-159 D6): a connection block's proxy { url {} } names the route it reaches, url { route = \"<route>\" }, where it named a host. A v1 or v2 recipe still loads with no edit — the loader migrates it on read, and each url { host = \"<h>\" } becomes url { route = \"<h>\" }, which names the same host on a connection whose route is named after its address, as every v1 connection's is — so this value is what a NEW recipe declares rather than a thing an existing one has to be changed to. A plugin vault reads its toolchains at the version its declared recipes level lists, and migrates them forward."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bare toolchain name (the HCL block label). The loader namespaces it as <vault-id>/toolchains/<name>. A vault that declares a name the system vault also uses does not replace it (ADR-147 D6): the vault's own recipes resolve the name to the vault's definition, and every other recipe to the system vault's — so a shop running pnpm writes its node definition in the vault whose types need it. The name may not contain '@', which is reserved for the store and lock key <name>@<vault> a declaration outside the system vault is kept under."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description surfaced in operator UIs and wherever a declaration's cost is reported before it is paid."
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "provisioned"
+      ],
+      "description": "Which of ADR-109 D1's filesystem tiers this toolchain's content belongs to. REQUIRED, AND PRESENTLY AN ENUM OF ONE: provisioned is a persistent store mounted read-only and shared across Work Orders, which is the whole of what ADR-109 specifies. The value scratch is REFUSED BY NAME rather than accepted and left inert, because D8 defers the shared-writable tier behind a falsifiable trigger — a measurement showing the mutable half of some ecosystem still costs enough AFTER its immutable half is provisioned — and a declaration that loaded and then provisioned nothing would be the worse of the two answers. Scratch content needs no declaration at all: it is the writable per-Work-Order tier every dispatch already has, and D1 makes that tier permanent rather than transitional."
+    },
+    "version_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "How this ecosystem NAMES a version, so the lock, the store's on-disk layout and the ecosystem's own resolver agree on one identifier — npm:@anthropic-ai/claude-code, playwright. Free text and non-empty, with no scheme vocabulary yet: the lock that would give one meaning lands in a later wave, and a grammar invented before its consumer is a set of rules nothing enforces. IT IS NOT A PIN, and that is ADR-109 D4's three-layer model rather than a caveat about this field. The DECLARATION says which toolchains a deployment provides and carries no version; the LOCK says which versions are provisioned; the DEMAND — package.json, uv.lock, go.mod — says what a given piece of work needs and is RESOLVED BY THE ECOSYSTEM'S OWN RESOLVER, NEVER BY TERA. Declaration is policy, lock is state, demand is what shows up at dispatch. Since ADR-109 D22 tera will READ a demand — the pin block below says where — for the one purpose of telling an operator that it and the lock disagree; that is a comparison and never a resolution, it runs client-side where the checkout is rather than in the daemon, and nothing about which version a dispatch is given depends on it."
+    },
+    "vouched_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The one release this recipe's author vouches for, for a recipe whose fetch digests do not already say it. OMIT IT IN THE ORDINARY CASE: when the fetch steps' sha256 or integrity maps are keyed on exactly one version, that version is the one vouched for and nothing needs writing. Declare it when the digests name none — an archive keyed on platform alone while the release itself is installed by an exec step, as playwright's is — or several. When the digests name any version, the value must be one of them, and a recipe that disagrees is refused at load: it cannot vouch for a release it pins no digest for. IT IS NOT A DESIGNATION. The lock still says which version a deployment provisions (ADR-109 D4); this is a fact about the recipe that a lock naming no version may adopt, and tera toolchain use designates another."
+    },
+    "platforms": {
+      "type": "array",
+      "description": "The platforms this toolchain exists on, each written <os>/<arch> in Go's own spelling: linux/amd64, darwin/arm64. OMITTING IT MEANS EVERY PLATFORM, which is the ordinary case — most provisioning commands select their own platform build, so most definitions never mention one. Each entry is checked at load against Go's known GOOS and GOARCH sets, because tera is a Go binary and the platforms a store could ever materialize on are therefore Go's: a closed list refuses nothing real and catches the typo that matters (macos/arm64, darwin-arm64). That is exactly what D4 asks the field for — converting a mysterious failure on the wrong host into a refusal at declaration.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "measured_size": {
+      "type": "string",
+      "description": "Roughly how much disk a provisioned store of this toolchain occupies, as a unit-bearing size (573MB, 1.2GB), parsed and validated at load so a nonsense value fails where it was written. It exists so an operator surface can say 573 MB rather than some disk, stating the cost BEFORE it is paid. IT IS AN ADVISORY ESTIMATE AND NEVER A QUOTA: nothing sizes a volume from it, nothing refuses a provisioning run that exceeds it, and it does not reach the volume manager's size limit. A hand-written number that silently became a quota would be worse than one labelled an estimate, because the failure would then arrive as a truncated install nobody asked for."
+    },
+    "require_provisioned": {
+      "type": "boolean",
+      "description": "Whether a fleet host must ALREADY HOLD this toolchain's designated version for its own platform to be drawn for work that needs it — a tool whose recipe lists it in toolchains, or a work-order type whose toolchains list names it (ADR-164 D10 item 3). Default false, which is the ordinary case: a cold host is drawn, and the dispatch provisions the store on arrival. Set it for a toolchain too slow to provision at dispatch, because the toolchain is the thing that knows it is slow. A host whose toolchains inventory does not hold the designated version is then not admissible for that work and is named on the per-member report (tera config plan, tera runners list) as lacking toolchain_provisioned.<name>; a host whose inventory is UNREPORTED is not admissible either and is named unknown, never lacks. It reads warmth only: whether the toolchain CAN provision for the host is judged as before, so pre-placement still warms the host this keeps work off. The daemon's own host (runner \"local\") shares the daemon's stores and is not judged. A wait for the host to become warm is never made: with no warm member the draw refuses as it does for any capability no member offers."
+    },
+    "detection": {
+      "type": "object",
+      "description": "The repository evidence that IMPLIES this toolchain — @playwright/test in package.json, an acme.toml for the toolchain nobody will ever seed. Detection being DATA rather than daemon code is what lets a custom toolchain be found on the same terms as a seeded one (ADR-109 D3/D4). It informs and it never acts: provisioning is an explicit operator act (D12), and the auto-detection-with-no-declaration design is rejected by name. Omit the block for a toolchain nothing in a repository would reveal.",
+      "properties": {
+        "file": {
+          "type": "array",
+          "description": "Repeated: one file whose presence is evidence for this toolchain. Blocks are ALTERNATIVES — any one matching detects the toolchain — so a project that reveals itself through either of two manifests declares two blocks rather than needing a disjunction grammar. A detection block that declares no file matches nothing, which is why an empty block is refused rather than read as always or as never.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The file to look for, as a REPOSITORY-RELATIVE slash-separated path (the HCL block label): package.json, frontend/package.json, acme.toml. An absolute path, and any path with a segment that climbs out of the repository, are refused at load — detection reads a repository somebody handed us, and a rule that can reach outside it is a rule that reads the host."
+              },
+              "contains": {
+                "type": "array",
+                "description": "Substrings that must ALL appear in the file for this block to match — @playwright/test, @anthropic-ai/claude-code. OMITTING IT MAKES THE FILE'S EXISTENCE THE WHOLE OF THE EVIDENCE, which is right for a manifest only one ecosystem writes (uv.lock, Cargo.toml) and wrong for package.json, which every Node project has. Plain substrings rather than a query language, deliberately: what a manifest MEANS is the ecosystem's business and not tera's, and a dependency name is the one thing every manifest format spells the same way.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "pin": {
+      "type": "object",
+      "description": "Where a REPOSITORY states which version of this software it asks for, so a disagreement with the version this deployment designates is caught as a version mismatch instead of as whatever it eventually breaks (ADR-109 D22). A SIBLING OF DETECTION AND NOT A PART OF IT: detection asks whether the toolchain is wanted here and any one of its blocks matching is evidence, a pin asks which version and every block of it is read, and the files often differ — Node reveals itself through package.json and pins itself in .nvmrc. Nothing reads this at dispatch and nothing acts on it; it is read client-side by tera toolchain check, because ADR-055 forbids the daemon reaching into a checkout and ADR-106 means the daemon is usually not on the machine the repository is on. Omit the block for a toolchain no repository states a version for, and see the pattern field for why an ecosystem's range grammar is deliberately not learned.",
+      "properties": {
+        "file": {
+          "type": "array",
+          "description": "Repeated: one file this repository states a version in. Blocks are CUMULATIVE — every one that resolves to an existing file is read and every version found is compared — which is the opposite of a detection block's alternatives, and it is what the defect required: the mismatch this exists to catch was measured on a repository pinning ONE toolchain in TWO manifests, and a check that stopped at the first would report whichever half it reached first. A pin block that declares no file reads no version, which is why an empty block is refused rather than left inert.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The file to read, as a REPOSITORY-RELATIVE slash-separated path (the HCL block label), which unlike a detection path MAY CARRY WILDCARDS: * matches within one segment and ** across any number of them, so **/package.json reaches a manifest at a depth no seeded definition could have enumerated. An absolute path, and any path with a segment that climbs out of the repository, are refused at load — a pin reads a repository somebody handed us, and a rule that can reach outside it is a rule that reads the host. A path with no wildcard is stat-ed and never walks, which is what keeps the ordinary case (.nvmrc, go.mod) as cheap as a detection rule, and one wildcard walk is shared by every rule asking for the same exclusions. THOSE TWO WILDCARDS ARE THE WHOLE VOCABULARY: a character class ([jt]) is refused at load rather than left to fail later, because the evaluator treats [ as a wildcard, so such a path walks the whole repository and then matches nothing at all — reported as this repository states no version, which is indistinguishable from the truth and always green."
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "description": "An RE2 expression with EXACTLY ONE capturing group, which is the version; a pattern that does not compile, or that captures none or several, is refused at load rather than failing inside the gate step somebody is running to be told about a version. RE2 rather than a per-format query language because one expression language runs against every manifest at once, and because it cannot backtrack — a vault-authored pattern cannot hang the check. THE GROUP DECIDES WHAT THE VERSION IS, and that is where an ecosystem's range grammar is handled: comparison is exact, or the pin is a dot-bounded prefix of the designated version (22 satisfies 22.23.2, 1.6 does not satisfy 1.62.1), and nothing here learns npm's caret or Python's tilde-equals. That is deliberate rather than unfinished — a provisioned store holds ONE version, is read-only, and the ecosystem's CDN is not in a consuming dispatch's egress allow-list, so a range is a repository saying any of these will do to a deployment that can supply exactly one."
+              }
+            },
+            "required": [
+              "path",
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "description": "Directory NAMES pruned from a wildcard walk — node_modules, vendor, target — written bare rather than as paths, because the name is pruned wherever it appears and ./node_modules would prune nothing while reading as though it had. It is declared HERE rather than built into the evaluator for the reason detection carries no table of known ecosystems: skipping node_modules is a claim about one ecosystem, and an evaluator that made it would make a custom toolchain second-class at the first surface an operator touches. Directories whose name begins with a dot are pruned regardless, which is a property of repositories rather than of an ecosystem. Irrelevant to a rule whose path has no wildcard: that one is stat-ed and never walks.",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "env": {
+      "type": "object",
+      "description": "What this toolchain CONTRIBUTES to a consuming dispatch's environment (ADR-109 D4) — as against the env block inside provision below, which is the provisioning dispatch's OWN environment and is assignment-shaped like a tool's. THE TWO SHARE A KEYWORD AND NOTHING ELSE, and conflating them silently makes prepend unrepresentable in the place it matters. A contribution is set, prepend or append over ANY variable rather than over a curated vocabulary, because a custom toolchain uses variables tera has never heard of. Values are written against the store as ${volume.<label>}/... and never as a literal host path, per the TOOL_VOLUME_* convention ADR-030 establishes.",
+      "properties": {
+        "set": {
+          "type": "array",
+          "description": "Assign a variable outright. This is what a RESOLVER-MEDIATED toolchain wants: it sets the variable its ecosystem's own tool reads (PLAYWRIGHT_BROWSERS_PATH, GOMODCACHE), tera points that variable at the store, and the ecosystem resolves within it — which is why tera does not reimplement selection. ADR-109 D4's amendment of 2026-09-02 rules that a contribution carries NO VERSION, because a consuming dispatch's mount narrows to the one version directory the lock designates and a version named here would be a second, divergent opinion about which version the dispatch runs; until the narrowed mount lands, ${volume.<label>} still resolves to the parent of every version directory and a contribution must still name its version segment. SET IS SINGLE-OWNER AND NEVER MIXES WITH COMPOSITION: two toolchains assigning one variable is a refusal, and so is a set on a variable anything else prepends or appends to. That rule needs no knowledge of variable names and it closes the footgun of a toolchain silently assigning PATH and erasing every other contribution. It carries no separator, because nothing is being joined.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The environment variable this toolchain assigns (the HCL block label)."
+              },
+              "value": {
+                "type": "string",
+                "description": "The value assigned. Written against the store as ${volume.<label>}/... and never as a literal host path, per the TOOL_VOLUME_* convention ADR-030 establishes — a definition that writes a host path down is a definition that stops working on the next host, and a store is host-local by construction (D18)."
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "prepend": {
+          "type": "array",
+          "description": "Compose onto the FRONT of what the dispatch already has. PREPEND MEANS I AM AUTHORITATIVE FOR THIS — a pinned runtime outranking the host's, which is what pinning is for. It is what a PATH-MEDIATED toolchain needs: one that supplies binaries a dispatch invokes by name, which assignment cannot express and which works only if something composes them onto PATH. PREPEND IS THE DEFAULT for a binary-supplying toolchain (ADR-109 D4 Amendment 4, ratified 2026-09-01), which closed a question carried open through three waves. A pinned runtime that loses to whatever the host happens to carry is not pinned, and the failure would be INVISIBLE — the dispatch's environment would report the right thing while the host's binary ran. The objection that stalled it, that prepending silently changes which binary a dispatch gets, does not survive D14: a dispatch receives a contribution only because its work-order type or its tool DECLARED that toolchain, so the change is consented to rather than silent. Reach for append instead when the definition is supplementary and must not shadow. THE SOFTWARE SHELL'S TIER-2 ALLOW-LIST IS AN ORTHOGONAL AXIS AND NOT A PRECEDENCE QUESTION: it answers whether a command NAME may run at all, while PATH composition answers WHICH FILE that name resolves to. A command clears both or it does not run, and neither overrides the other.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The environment variable this toolchain composes onto (the HCL block label). COMPOSITION IS AGAINST WHAT THE DISPATCH ALREADY HAS, not against emptiness, and the order among several mounted toolchains is declaration order — non-determinism here would mean one dispatch resolving a different binary from the next, which is unfalsifiable from a log."
+              },
+              "value": {
+                "type": "string",
+                "description": "The fragment composed on. Written against the store as ${volume.<label>}/... and never as a literal host path, per the TOOL_VOLUME_* convention ADR-030 establishes."
+              },
+              "separator": {
+                "type": "string",
+                "description": "What joins this fragment to what is already there. Defaults to the platform's path-list separator, which is what nearly every composed variable wants. It is overridable because not every composed variable is a path list, and a definition that cannot say a single space gives up on GOFLAGS and CFLAGS."
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "append": {
+          "type": "array",
+          "description": "Compose onto the END of what the dispatch already has. APPEND MEANS I AM SUPPLEMENTARY AND MUST NOT SHADOW, which is what a library path wants when the application's own modules have to win. The mirror of prepend beside it: the two are different INTENTS rather than variants of one, and a definition may use both over different variables.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The environment variable this toolchain composes onto (the HCL block label). COMPOSITION IS AGAINST WHAT THE DISPATCH ALREADY HAS, not against emptiness, and the order among several mounted toolchains is declaration order — non-determinism here would mean one dispatch resolving a different binary from the next, which is unfalsifiable from a log."
+              },
+              "value": {
+                "type": "string",
+                "description": "The fragment composed on. Written against the store as ${volume.<label>}/... and never as a literal host path, per the TOOL_VOLUME_* convention ADR-030 establishes."
+              },
+              "separator": {
+                "type": "string",
+                "description": "What joins this fragment to what is already there. Defaults to the platform's path-list separator, which is what nearly every composed variable wants. It is overridable because not every composed variable is a path list, and a definition that cannot say a single space gives up on GOFLAGS and CFLAGS."
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "connection": {
+      "type": "array",
+      "description": "What the CLI this toolchain supplies needs from a connection when a DISPATCH uses it (ADR-148 D4): how it reaches the dispatch's injecting proxy, the files it needs generated from templates, the environment it needs, and the raw-delivery escape hatch. Repeated, one block per connection, labelled with the bare name of a .tera/connections/<name>.hcl recipe — the toolchain's own plugin vault's when it carries the name, else the system vault's; a toolchain naming one no recipe declares is refused at load and at plan, naming the toolchain and the connection. THE CREDENTIAL NEVER ENTERS THE SANDBOX on the golden path: the proxy holds it, outside the sandbox, and the CLI is handed a placeholder and a route to the proxy. Which holder's credential the proxy uses - the filer's or the worker's - is the work-order type's connection block, never this one, so the knowledge of how a CLI routes lives once, here, and the choice of whose credential lives once, there. NOT THE FETCH CREDENTIAL: a fetch step's credential (ADR-146 D8) is what provisioning presents to an artifact origin while the store is POPULATED, on the daemon's host, and no dispatch ever sees it; this block is about a dispatch that USES the provisioned software, and shares no spelling with fetch, credential_spec or credentials. Validated when the recipe loads; nothing reads it at dispatch yet.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The connection (the HCL block label): the bare file stem of a .tera/connections/<name>.hcl recipe, with no vault or kind prefix. It binds the recipe's own release first: in a plugin vault carrying the stem, that installation's connection (plugin.<installation>/connections/<name>); otherwise the system vault's (ADR-159 D5.7). Or another installation's connection by its declared address, plugin.<plugin>/connections/<name>, resolved where the recipe loads through the writing vault's binding: a plugin's manifest builds_on, or a .tera/builds-on/<installation>.hcl declaration; a bare stem never names another installation's connection. A toolchain names each connection once."
+          },
+          "proxy": {
+            "type": "object",
+            "description": "How the CLI reaches the dispatch's injecting proxy, which presents the credential on the connection's proxy hosts and keeps it outside the sandbox. The golden path. At least one of proxy and raw_delivery is required; both may be present.",
+            "properties": {
+              "socket": {
+                "type": "object",
+                "description": "Place the proxy's Unix socket in the sandbox, routed by each request's Host header against the connection's proxy hosts, for a client that dials a socket; ${proxy.socket} is its path. Takes no label and no fields. At least one of socket and url is required.",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "url": {
+                "type": "object",
+                "description": "Route a localhost port to one of the connection's proxy routes, for a client that takes a base URL; ${proxy.url} is that base URL, and the client is pointed at the route's address. At least one of socket and url is required.",
+                "properties": {
+                  "route": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The name of the connection's route the localhost port reaches: the label of one of its proxy { host \"<route>\" {} } or git \"<route>\" {} blocks, or one of its exact passthrough hosts, which is named by itself. The client is pointed at the route's address, resolved from the connection's recipe when a dispatch is assembled, so a connection edit that moves the address moves the client with it. A route the connection does not declare is refused at load and at plan, naming the routes it does."
+                  }
+                },
+                "required": [
+                  "route"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "socket"
+                ]
+              },
+              {
+                "required": [
+                  "url"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          },
+          "file": {
+            "type": "array",
+            "description": "Zero or more files the CLI needs, one block per file, labelled with its path under ${files.dir}. Each is generated per dispatch from its content template into runtime-owned scratch outside the workspace and mounted read-only, and removed when the dispatch ends.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The file's clean, relative, slash-separated path under ${files.dir} (the HCL block label): gh/config.yml. An absolute path, a backslash, and a . or .. segment are refused, because the directory is the runtime's and a path may not leave it."
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The file's content, as a template. Literal text plus any of ${proxy.socket}, ${proxy.url}, ${files.dir} and ${credential.placeholder}, each usable only when the block declares what it names: a proxy socket, a proxy url, a file, or a proxy. Every other interpolation, function and directive is refused at load, naming it; write $${ for a literal ${."
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "env": {
+            "type": "object",
+            "description": "The environment the CLI needs, as set entries whose values may interpolate this block's template values. Assignment only. A variable takes one owner in a toolchain: one declared here may not also be set, prepended or appended by the toolchain's own env block, by another connection block, or named in raw_delivery.",
+            "properties": {
+              "set": {
+                "type": "array",
+                "description": "Assign a variable outright, one block per variable, labelled with its name. The value is a template over the same values a file's content may use - ${credential.placeholder} for a token variable, ${files.dir}/... for a config directory - and never a host path or the credential.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The environment variable this toolchain assigns (the HCL block label)."
+                    },
+                    "value": {
+                      "type": "string",
+                      "description": "The value assigned. Written against the store as ${volume.<label>}/... and never as a literal host path, per the TOOL_VOLUME_* convention ADR-030 establishes — a definition that writes a host path down is a definition that stops working on the next host, and a store is host-local by construction (D18)."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "raw_delivery": {
+            "type": "array",
+            "description": "THE ESCAPE HATCH, AND THE TOKEN IS IN THE SANDBOX: the environment variables that would carry the credential itself, for a CLI that cannot be mediated - one that signs its own requests, or speaks TLS the proxy cannot terminate. Nothing protects a credential delivered this way. Permitted only for a connection that declares raw_delivery = true; a declaration for a mediated-only connection is refused at load and at plan, naming the connection. At least one of proxy and raw_delivery is required; both may be present.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether a dispatch refuses to run without this connection, in the word a tool's credential_spec and volume already use. Default true: every dispatch that mounts the toolchain holds the connection, or one of its alternatives, or is refused. false says the CLI has another way in, its own credential that is not a connection: a dispatch that holds no connection of this block's group then runs without the block, which applies none of its env, files or raw delivery, and a connection the tool brings whose blocks are all required = false and which nothing supplies is not held rather than not configured, at filing and at dispatch. A held one is applied exactly as a required one is, and a type that chooses a holder for it is still checked for that holder. It is not a precedence rule: whether the CLI's other credential is also present is the CLI's adapter to refuse, never the engine's. Blocks whose connections route a common proxy host form a group of alternatives, one requirement, so they agree on required; a group that mixes the two is refused at load and at plan, naming the blocks."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "proxy"
+            ]
+          },
+          {
+            "required": [
+              "raw_delivery"
+            ],
+            "properties": {
+              "raw_delivery": {
+                "minItems": 1
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
+    "provision": {
+      "type": "object",
+      "description": "How the store is populated — a tool's dispatch surface minus the caller-facing half (ADR-109 D9), reusing that vocabulary rather than paraphrasing it. Provisioning is a dispatch and is dispatched as one, so it inherits sandboxing, egress control, timeouts, cancellation and logging rather than growing a second execution path beside the one the project already trusts; it is also THE ONLY MOMENT a provisioned store is mounted writable, which is what makes D2's concurrency argument hold rather than merely be asserted. Nothing calls a toolchain, so there is no input_schema, no output_schema and no config_schema; the store is implicit and is the only volume, so there is no volumes block. Omitting the block is legal and is what a hand-populated store looks like.",
+      "properties": {
+        "fetch": {
+          "type": "array",
+          "description": "A step that downloads a URL and unpacks it into the store, DECLARATIVE AND DAEMON-IMPLEMENTED: it runs no host binary at all (ADR-109 D19). Together with exec it makes a provision block an ORDERED SEQUENCE OF STEPS, and the order is DECLARATION ORDER ACROSS BOTH KINDS — a fetch written between two execs runs between them. A toolchain needing an interpreter therefore fetches it and then runs it by absolute path, which is why this tier states no host floor: a floor would be a promise about hosts tera does not control, and D18 puts provisioning on a runner fleet, which is exactly where such a promise breaks. A FETCH HAS NO ENV AND NO SANDBOX — it runs no process to give either to — and it uses the block-level network grant, since an HTTP GET is precisely what D5's egress grant is for. At least one step of either kind is required: a provision block with none populates nothing while reading as though it does.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "description": "The archive to download, http(s) and nothing else. ${version}, ${platform.os} and ${platform.arch} resolve in it — ${platform.*} in Go's own GOOS/GOARCH spelling — which is what keeps ONE DEFINITION SERVING EVERY PLATFORM rather than forking a definition per platform and letting the two drift. The version comes from the lock and never from the declaration (D4): declaration is policy, lock is state. An unknown token is refused AT LOAD rather than passed through, because a URL that fetched .../v${verison}/... verbatim would 404 from somebody else's server at the far end of a provisioning run somebody started deliberately. The download is bounded by daemon constants a recipe cannot raise — 2 GiB downloaded, 4 GiB extracted, ~200k entries — and the host must be named by the block's own network grant, which the daemon checks on every redirect hop and not only on this URL. IT MAY ALSO BE WRITTEN AS ONE URL PER PLATFORM (ADR-109 D20 Amendment 4), keyed exactly the way a platform-keyed sha256 is: url = { \"darwin/arm64\" = \"...\", \"linux/amd64\" = \"...\" }. That form exists because ${platform.*} ARE GOOS and GOARCH, so the scalar form can only address an upstream that spells platforms the way Go does — npm spells amd64 x64, and a Rust release spells linux/amd64 x86_64-unknown-linux-musl, which decomposes into no os token and no arch token at all, so no per-token alias table could express it either. The key is in Go's spelling because that is what it is matched against; the UPSTREAM's spelling is written out literally on the right. A keyed url DECLARES the platform axis rather than carrying it in a token, which is what a sibling sha256's shape is then checked against — so a keyed url with a scalar sha256 is refused as one hash covering several archives, exactly as a ${platform.*} url with a scalar hash is. ${version} still resolves INSIDE each keyed url and is still an axis, so a url keyed on platform and carrying ${version} needs a sha256 keyed on both. A ${platform.*} token inside a keyed url is refused: the key already names the platform, and the token would expand to exactly what the key says. A keyed url must cover EXACTLY the toolchain's declared platforms, and a toolchain with a keyed url must declare them — an omitted platforms attribute means every platform, which a keyed url cannot cover — so a missing platform is a LOAD-TIME refusal naming what the definition does cover, rather than a 404 at the far end of a provisioning run. The scalar form stays valid and stays the common case: a single-source toolchain should not have to write four identical lines.",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ]
+              },
+              "platforms": {
+                "type": "array",
+                "description": "NARROWS this step to some of the toolchain's own platforms, each written <os>/<arch> in Go's own spelling exactly as the toolchain's platforms attribute is, and checked at load the same way. OMITTING IT MEANS EVERY PLATFORM THE TOOLCHAIN DECLARES, which is the ordinary case: a step whose url is templated on ${platform.*} or keyed per platform already serves every platform from one declaration. IT EXISTS FOR A TOOLCHAIN THAT SHIPS DIFFERENTLY PER PLATFORM (ADR-167 D6.1) — a desktop application is a disk image on darwin and a tarball on Linux, which no single url, strip or unpack can describe — and splitting such a toolchain per platform would make a type's requirement name a platform. A step whose platforms exclude the host is skipped on that host, and it keeps its place in the sequence: the lock labels each fetch by its position in the DECLARED list, so a step skipped on one platform moves no other step's recorded hash. Three things are refused at load: a platform the toolchain does not declare, a keyed url covering other than exactly these platforms, and a toolchain with a declared platform that no fetch step serves (one naming it, or one with no platforms) — which would otherwise provision an empty store and fail at dispatch, far from its cause. A toolchain that declares no platforms claims every platform, so a step cannot narrow it; name the toolchain's platforms first.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "members": {
+                "type": "array",
+                "description": "Treats the downloaded archive as A CONTAINER OF ARCHIVES and unpacks the ones it names (ADR-167 D6.2): members = [\"*/DEBS/*.deb\"]. The archive is verified AS A WHOLE against its digest first, exactly as it is without this attribute; then each member whose path matches a glob is itself unpacked into dest, its format detected by content and never by its name, and strip_components applies to the MEMBER'S OWN ENTRIES rather than to the container's. Each glob is a path.Match pattern over the member's cleaned path (./a/b.deb is a/b.deb), and * DOES NOT CROSS A SLASH — which is what keeps LibreOffice's DEBS/desktop-integration/ packages out of a glob naming DEBS/*.deb. Members that match no glob are discarded. OMITTING IT MEANS UNPACK THE ARCHIVE ITSELF, which is every ordinary fetch; recursion is never a default, because a tarball that legitimately carries zips or jars must not have them expanded. ONE LEVEL ONLY: an archive inside a matched member is written as the file it is. Refused when the archive is unpacked, and before anything reaches the store: a glob set that matches no member (an upstream that renamed the directory a glob names would otherwise provision a store that holds nothing and reports green), a matching member that is not a recognized archive, and a container that is not a tar or a zip; and, as the members are unpacked, a path that two members both write. THE CEILINGS ARE THE FETCH'S, NOT EACH MEMBER'S: 4 GiB and ~200k entries bound everything this step writes, summed across its members, and a member is first copied to the fetch's own temporary directory — a zip and a Debian package are read at random offsets — and that copy counts against the same ceilings. Refused at load: an empty list, an empty or absolute glob, a malformed one, and one written twice. On the fleet, a plan for a runner that does not advertise toolchain_members is refused by name rather than sent without them.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "dest": {
+                "type": "string",
+                "description": "Where inside the store this archive unpacks, RELATIVE to the store's version directory. THE DAEMON OWNS EVERY SEGMENT ABOVE IT: the layout is <store>/<platform>/<version>/<dest> and a definition writes neither the platform segment nor the version segment, which is what makes D10's version coexistence and Wave 3's whole-store eviction fall out rather than be arranged. An absolute dest is refused rather than silently reinterpreted. Omitting it unpacks into the version directory itself. Extraction goes through an os.Root rooted at the store, so an entry that tries to escape is impossible by construction rather than caught by a check."
+              },
+              "strip_components": {
+                "type": "integer",
+                "description": "Drop this many leading path components from every archive entry. Components are counted on the entry's CLEANED path, so a leading ./ is not a component: ./a/b/c under 1 lands b/c. That is where it differs from tar --strip-components, which counts the . — a definition written by tar's arithmetic for a ./-prefixed archive strips one component too many. The same counting holds for every format, including a .deb's data archive and each member a members list unpacks. It is load-bearing on D19's own worked example rather than a convenience: the node tarball unpacks under a versioned top-level directory, so a stable ${volume.store}/node/bin/npm needs both a dest and a strip. An entry with fewer components than this is skipped rather than flattened, which is also tar's behaviour. Symlinks are PRESERVED by the extractor — node ships bin/npm and bin/npx as symlinks into lib/node_modules/ and a store that dropped them is one where the very next exec step fails with no such file — and a symlink whose target resolves outside the store is refused."
+              },
+              "sha256": {
+                "description": "The bare 64-character hex sha256 the downloaded archive must hash to. IT IS OPTIONAL AND THAT IS DELIBERATE (ADR-109 D20): a hash cannot be known until the first fetch, so requiring one would mean re-hashing on every iteration of authoring, and what makes integrity the default instead is that tera toolchain sync RECORDS the hash it observed into the lock per platform whether or not one was declared — nobody types a hash and one exists anyway. Declaring one means ASSERT THIS SPECIFIC ARCHIVE, for an author who wants to pin rather than trust. THE DECLARATION TAKES THE SHAPE OF THE URL IT VERIFIES (D20 Amendments 1 and 3), which is why this attribute is either a string or a map: a url parameterized on neither ${version} nor ${platform.*} resolves to one archive everywhere and declares one scalar (sha256 = \"...\"), one parameterized on platform declares a hash per platform (sha256 = { \"linux/arm64\" = \"...\" }), one on version a hash per version (sha256 = { \"22.1.0\" = \"...\" }), and one on both a hash per version AND platform (sha256 = { \"22.1.0/linux/arm64\" = \"...\" }). A declaration NARROWER than its url is refused at load, on each axis, because it is silent in the direction that matters — it satisfies the server gate and verifies on the one archive it was taken from, and fails only when somebody stands up the second platform, or when adding a second version (D10's ordinary act) resolves the first version's hash as the second's expectation and blows up as a mismatch several hundred megabytes in. One WIDER than its url is refused too: a key asserts a distinction the url does not make, so every key but one is dead text reading like coverage. A declared key naming a version the lock does not yet carry is NOT an error — the declaration is policy and the lock is state (D4) — so an author may pin ahead of a sync. The KEY is a literal and the VALUE takes no ${...} tokens: a template in the value would be a definition computing its own digest. Under deployment_profile = server a FIRST fetch with neither sha256 nor integrity declared FOR THIS FETCH'S KEY is refused, which is what makes a second platform declare its own rather than inherit another host's recorded observation; under dev and embedded it proceeds and records. An algorithm prefix (sha256:...) is refused rather than stripped, so the lock and a declaration are never compared as unequal strings naming the same digest. This is the opposite posture from an archive vault source, whose digest is MANDATORY (ADR-066 §3), and the divergence is a choice: a vault subtree is small and hand-pinned, a toolchain is hundreds of megabytes fetched per platform.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "integrity": {
+                "description": "The registry's native digest, pasted verbatim as one Subresource-Integrity token: <alg>-<base64>, with alg sha256, sha384 or sha512 (ADR-109 D20 Amendment 7). For npm-published toolchains, copy dist.integrity into this attribute; use sha256 for upstreams publishing only a hex sha256. Example: integrity = { \"0.160.0/darwin/arm64\" = \"sha512-<base64 from dist.integrity>\" }. It takes exactly the same shape as sha256: a scalar for a url with no axes, otherwise keys naming precisely the url's version and/or platform axes. Unknown or weak algorithms, multiple SRI tokens, malformed base64 and a decoded digest of the wrong length are refused at load. sha256 and integrity may both be present, and EVERY declared digest must match; this is an at-least-one (anyof) requirement only where the server profile requires a first-fetch declaration, never an exactly-one union or a global recipe requirement. Either attribute satisfies that gate for the key being fetched. sha256_unavailable conflicts with either declared digest, since its claim is that the upstream publishes no digest at all. Downloaded bytes are hashed in one pass, all declared digests are checked before extraction, and cache hits, bundled files and relayed archives receive the same checks. The lock and archive cache still record the OBSERVED sha256; a first fetch anchored by integrity binds later hosts through that sha256. A declared integrity is compared at fetch, never against a recorded sha256 before fetch. Mismatches name the algorithm and show expected and observed SRI tokens. tera toolchain digest prints both the measured sha256 and sha512 SRI attributes, beside any declared values, for review.",
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                ]
+              },
+              "header": {
+                "type": "array",
+                "description": "A STATIC request header sent with this download, labelled by header name — ADR-109 D19 Amendment 5. It exists because one upstream shape that matters cannot be read from a bare request: an OCI registry's anonymous pull answers 401 with a WWW-Authenticate challenge to a request carrying no Authorization, and 307 into a signed blob store to one carrying a fixed public bearer, which is how a Homebrew bottle becomes an ordinary toolchain. IT IS A STATIC, NON-SECRET SURFACE AND THAT IS A RULING RATHER THAN A GAP. The alternative considered was a general headers map, which is flexible and is also where operators eventually put secrets, at which point it would want the treatment credential_spec already gets and would have acquired that requirement by accident; so the narrowing is applied up front. THE VALUE IS A LITERAL: it takes no ${version} or ${platform.*} tokens, so it cannot be parameterized and there is nowhere for a dereferencing vocabulary to be added later without that being a visible decision — the url beside it is what varies per version and per platform. A VALUE CARRYING A CREDENTIAL REFERENCE IS REFUSED BY NAME at load — env://, keychain://, vault://, secret:// and literal:// — pointing the author at credential_spec on the provision block, which is D9's answer and is unchanged by this. NOTHING IS REDACTED, because nothing here is a secret: the value is rendered in the definition, crosses to a runner in the plan, and is legible in the provisioning log, and a surface that pretended to hold secrets while logging them would be worse than one that says it holds none. What this does not do is stop somebody typing a live token as a literal, which is the vault-write trust boundary ADR-109 D6 already names — so it is said plainly here rather than inferred from the refusals: A FETCH HEADER IS NOT A CREDENTIAL CHANNEL AND PUTTING A SECRET IN ONE IS UNSUPPORTED, in the sense that nothing redacts it, nothing rotates it, and nothing keeps it out of a plan shipped to a runner or out of the provisioning log. A provisioning step that must authenticate is a separate and larger decision touching D6, whose shape is extending credential_spec to fetch steps rather than widening this block. ON REDIRECTS the header rides the chain, EXCEPT that Go's client drops Authorization, Cookie and WWW-Authenticate on a hop to a different host — which is what makes the motivating case safe rather than merely convenient, since the bearer that gets a 307 out of a registry is never presented to the signed blob store it redirects to. A name is matched case-insensitively and declaring one twice in a step is refused; a name that is not a valid HTTP field name is refused; a value carrying a carriage return or newline is refused as request splitting rather than sent; and the names the transport owns are refused by name (Host, Content-Length, Trailer, Transfer-Encoding, and the hop-by-hop set), because each of those either sends nothing or fails as a transport error the fetch would then report as the source being unreachable.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The HTTP field name, as the block's label. It must be a valid HTTP field name — RFC 9110's token production, which is letters, digits and the punctuation !#$%&'*+-.^_|~ plus the backquote — and is canonicalized, so authorization and Authorization are one declaration and a step writing both is refused rather than sending whichever won. THE NAMES THE TRANSPORT OWNS ARE REFUSED BY NAME, because a fetch step declares END-TO-END headers and connection management is not its to set: Host, Content-Length, Trailer, Transfer-Encoding, Connection, Keep-Alive, Proxy-Connection, Proxy-Authenticate, Proxy-Authorization, TE and Upgrade. Each of those fails in a way that could not be traced back to this attribute — Host is silently ignored (Go takes the request host from the url), Content-Length and Trailer are dropped on the way out, and the hop-by-hop names are a HARD ERROR on HTTP/2, which is what an OCI registry negotiates: the request fails with http2: invalid Upgrade request header, a transport error the fetch then classifies as the source being unreachable, sending an operator to inspect a network and an egress grant that are both fine. Refusing them when the recipe loads is the only point at which the message can still name the attribute."
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The literal field value. IT TAKES NO ${version} OR ${platform.*} TOKENS — the url beside it is what varies per version and per platform — and that is the surface rather than an implementation limit: a value that cannot be computed is one no dereferencing vocabulary can be added to later without that being a visible decision. A value carrying a credential reference scheme (env://, keychain://, vault://, secret://, literal://) is REFUSED at load, pointing at credential_spec on the provision block, because this is deliberately not the credential surface and the refusal is what stops it from quietly becoming one. A value carrying a carriage return or a newline is refused as request splitting rather than sent — Go's transport would refuse it too, several hundred megabytes into a provisioning run, with an error naming neither the recipe nor this attribute. NOTHING HERE IS REDACTED: the value is rendered in the definition, crosses to a runner in the plan, and appears in the provisioning log."
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "sha256_unavailable": {
+                "type": "object",
+                "description": "Declares, ON THE RECORD AND WITH A REASON, that this fetch's upstream publishes no digest at all to put in sha256 or integrity — ADR-109 D20 Amendment 5. It is what a deployment_profile = server host does about an old vendor tarball on a static host, an internal build-team artefact, or a publisher that stopped existing: without it such a definition simply cannot be provisioned under server, and the workarounds an operator is pushed toward — a forked definition, a vendored artefact, turning the profile off entirely — all lose more than the waiver does. THE DEFAULT IS UNCHANGED: a fetch declaring neither sha256 nor integrity nor this block is still refused under server exactly as before, and this adds a third state rather than softening the second. IT IS DECLARED HERE RATHER THAN AS A GLOBAL SWITCH OR A FLAG ON tera toolchain sync, because the fact asserted is about THIS upstream, and a per-invocation flag would let a routine sync silently cover a definition nobody considered. It is in conflict with either sha256 or integrity and declaring either beside it is refused at load: the digest the block says cannot be had is written out beside it, so one of the two is wrong, and a precedence rule would leave the loser reading like an assertion nothing consults. It is NOT KEYED the way sha256 is, because a digest is a fact about one archive and this is a fact about a PUBLISHER — one that publishes no digests publishes none for any platform or version — so keying it would invite a definition to drift into waived-because-nobody-got-around-to-it one key at a time. It is LOUD, not silent: every fetch that consumes it logs at WARNING level naming the definition and the reason, and tera toolchain list reports the definition as sha256_waived with the reason, on --json as well, so an operator auditing what a host trusts can see it without reading the HCL. Its blast radius is exactly the FIRST fetch of each archive: sync records what it observed, and every later fetch on any host verifies against that recording for real. THERE IS DELIBERATELY NO COMPUTE-ON-DOWNLOAD ALTERNATIVE — hashing the archive as it arrives and verifying it against that hash checks the bytes against themselves, cannot fail, and produces a green signal indistinguishable from a real verification, which is worse than no check at all because an honest absence is legible and a check that always passes is not.",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500,
+                    "description": "Why no digest can be declared for this fetch. REQUIRED, and that is the whole reason this is a block rather than a boolean: a waiver with no stated reason is the line somebody copies into the next definition without knowing why it is there, and the reason is the only part of a waiver a reviewer can check. Say what the upstream publishes and what was looked for — 'vendor publishes no checksum file; .sha256 sidecar 404s and the release page lists none (checked 2026-09-03)' is a reason, 'no hash' is not. An ATTESTATION is not a digest: an upstream publishing a transparency-log entry or a signature that this fetch cannot reduce to a sha256 of the archive bytes is still an upstream with nothing to declare here, and saying so is the honest reason. It takes no ${version} or ${platform.*} tokens, because there is nothing per-version or per-platform about this upstream publishes nothing."
+                  }
+                },
+                "required": [
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "exec": {
+          "type": "array",
+          "description": "A step that runs something, declaring its target as a command or an entry variant block. It is where a toolchain's what-runs now lives: ADR-109 D19 made provisioning an ordered sequence, so there is no block-level entry any more. Steps of both kinds run in declaration order across both lists. The sandbox, network, credentials, timeout and env that bound the run are BLOCK-LEVEL and not per-step, because they are properties of provisioning this toolchain rather than of one step of it: one egress allow-list covering a fetch and the exec that follows it is one grant rather than two that must agree, per-step sandboxes would spawn N sandboxes for an N-step provision, and D9's the store's only writable moment is far easier to assert over one dispatch than over a set.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "object",
+                "description": "Run an ABSOLUTE path — INCLUDING A PATH INSIDE THE STORE AN EARLIER FETCH CREATED, written against it as ${volume.store}/..., which is the whole of ADR-109 D19's claim and the reason this tier states no host floor. A bare name is REFUSED: resolving one would mean consulting the provisioning host's PATH, which is the silent dependency on whatever the host happens to carry that ADR-109 exists to close. Exactly one of the command and entry blocks must be declared (ADR-087 D4).",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The path this variant runs. Under command it is ABSOLUTE and may be written against the store as ${volume.store}/...; under entry it is RELATIVE to this recipe's own directory and takes no tokens, since it names the same file whatever version or platform is being provisioned. It is an attribute rather than the block's label because an HCL block label is a literal and the parser refuses a template sequence in one — and a command path inside the store is exactly a template."
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "entry": {
+                "type": "object",
+                "description": "Run a vault-resident executable shipping beside this recipe — provision.sh — resolved against the recipe's own directory exactly as a tool's entry is, with no new path resolution invented for it. D19 DEMOTES IT to the escape hatch for a definition that genuinely needs a script: the floor question then binds only here, and narrowly. Exactly one of the command and entry blocks must be declared (ADR-087 D4).",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The path this variant runs. Under command it is ABSOLUTE and may be written against the store as ${volume.store}/...; under entry it is RELATIVE to this recipe's own directory and takes no tokens, since it names the same file whatever version or platform is being provisioned. It is an attribute rather than the block's label because an HCL block label is a literal and the parser refuses a template sequence in one — and a command path inside the store is exactly a template."
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "args": {
+                "type": "array",
+                "description": "The argument vector, AN EXPLICIT LIST. It is never produced by splitting a command string on whitespace: shell-split is the floor D19 refused, arriving through quoting, and it gets a path containing a space wrong in a way nobody notices until a definition meets one. Args are per-step, which is what makes them expressible at all — a toolchain has no caller and therefore no invocation params to carry them. ${version}, ${platform.os} and ${platform.arch} resolve here as they do in a command path, and so does ${volume.store}.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "command"
+                ]
+              },
+              {
+                "required": [
+                  "entry"
+                ]
+              }
+            ],
+            "additionalProperties": false
+          }
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Top-level shorthand for sandbox.timeout (Go duration, e.g. 45m). It is the one limit enforced identically on every platform, and provisioning is the dispatch most worth bounding deliberately: it fetches hundreds of megabytes from somebody else's server."
+        },
+        "credential_spec": {
+          "type": "array",
+          "description": "Declares the credential interface this provisioning step consumes, in the tool kind's own shape. It is here because a PRIVATE ARTIFACT SOURCE is not an exotic case — it is the case ADR-109 D3's extensibility argument exists for, and a provisioning step that cannot present a credential fails that claim outright. The value is attached OUTSIDE the sandbox, on the posture PRD-004 already establishes, so the token does not transit the provisioning process. The wider grant this represents is recorded in D6 rather than here: a user-vault definition that can both run a command and present a credential runs behind the system vault's allow-exec trust gate, which authorises both.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Credential binding name workers must supply."
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable description of the credential purpose."
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Whether the tool refuses to run without this credential."
+              },
+              "sensitive": {
+                "type": "boolean",
+                "description": "Whether the value must be redacted in logs and telemetry."
+              },
+              "write_back": {
+                "type": "boolean",
+                "description": "Whether a dispatch may hand the platform a REPLACEMENT for this credential, and the platform must therefore be able to keep one (ADR-110 D5 Amendment 2). Default false, which is the behaviour every capability had before this attribute existed: nothing acquires a requirement by it being added, and a recipe that leaves it unset produces exactly the served definition it produced before. IT IS A STATEMENT ABOUT THE SUPPLY AND NOT ABOUT THE HARNESS. A rotating credential is safely usable only when the value handed to the dispatch can be written back somewhere, which is a property of where the value came from rather than of the string, so declaring it here imposes rules on how a member may supply it — all of them refused when the configuration is composed, before any dispatch, because a harness that rotated its credential and got no error is entitled to believe the platform kept it. THE ONE LEGAL SHAPE is a pool member supplying the field from a writable encrypted secret://<name> row, with resolve_on left at its server default. env://, keychain://, vault://, literal:// and a bare literal are readable references and none of them is a writable sink; resolve_on = \"runner\" is refused when the recipe loads, because a host-resolved value is read on the executing host from that host's own references and the daemon never learns which one won. A definition-level credentials {} default, a worker's capability_credentials binding and a tool_binding's credentials {} override are refused too — not for being unreadable but for being unattributed: none names a member, so none serialises the write or leaves anything to hold when it fails. THE MEMBER CARRIES THREE RULES OF ITS OWN: it declares seats = 1, because an unset seats is UNBOUNDED concurrency rather than one and would admit any number of dispatches racing to rotate one document (seats = 0, a ceiling of zero, is legal and admits no lease at all); it supplies at most ONE write-back credential, because one seat lease cannot order two independent rotations; and no two members may point at one secret:// row when either rotates it, because a rotating document has one owner and every other member pointing at it is handed a document invalidated without its knowledge. More capacity is more independently enrolled members with independent rows. On a toolchain provision block the attribute is spellable and never satisfiable — a provisioning step resolves from the definition's own static credentials map and holds no member — so it is refused there when the definition loads."
+              },
+              "resolve_on": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "server",
+                  "runner"
+                ],
+                "description": "WHERE this credential's value is resolved (ADR-028 Amendment 2, ADR-106 D8 as amended 2026-08-28) — a separate axis from WHICH supplied value wins, which is the unchanged three-tier precedence of ADR-028 section 3. The two are orthogonal, and the tempting collapse is wrong: a host-resolved credential is not a fourth tier, it does not out-rank or under-rank a worker binding, it is the same tier structure resolved somewhere else. server, the default, is a DISPATCH CREDENTIAL: the daemon resolves it through the same path a local dispatch already uses and delivers it per dispatch. This is the golden path. runner is a HOST-LOCAL FACT: it is resolved on the host that executes the dispatch, from that host's own references. RUNNER MEANS THE HOST EXECUTING THIS DISPATCH, NOT A REMOTE HOST — in a deployment with no runners at all, a credential marked runner resolves on the daemon's own machine, because that is the host executing the dispatch. The classification is a property of the CREDENTIAL and not of the host: a subscription token is a workload credential on every machine and a local CA bundle path is a host fact on every machine, which is why this is declared here on the capability's own contract rather than on a per-host file where it would have to be repeated and could disagree. Empty means server, and that default is chosen rather than inherited — nothing regresses because the host-resolved path supplies nothing today, it makes the arrangement that works the one an author gets without deciding, and an unmarked credential silently resolving host-side is the multi-host credential defect wearing a default. The cost is named rather than hidden: a credential that genuinely IS a host fact must say so, or it silently centralises, and that cost is paid by the recipe author, who knows the answer. A value outside the closed set is refused when the recipe loads, naming the credential and quoting the value."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "sandbox": {
+          "type": "object",
+          "description": "Sandbox execution limits and filesystem/network posture for the provisioning dispatch, in the tool kind's own shape.",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "description": "Sandbox enforcement mode."
+            },
+            "cpu_limit": {
+              "type": "string",
+              "description": "CPU-time ceiling for the sandboxed process, as a WHOLE NUMBER OF CPU-SECONDS and no unit suffix: 600, or 600.0. There is no duration spelling here even though timeout one attribute away takes one, and 1m is refused rather than read as a minute; a fractional value is refused too, because the ceiling lands on RLIMIT_CPU, which counts whole seconds, and 0.5 has nothing to become but 0 — which means no ceiling at all. A value this grammar cannot read is REFUSED, at tera validate and when the recipe loads, never converted. ENFORCED ON LINUX ONLY (RLIMIT_CPU). On darwin it is accepted and bounds nothing: Seatbelt has no CPU-time primitive and the backend applies no rlimits, so the daemon reports every recipe declaring it at boot rather than leaving the declaration to read as a ceiling. Use timeout, which is enforced everywhere."
+            },
+            "mem_limit": {
+              "type": "string",
+              "description": "Memory ceiling for the sandboxed process, as a unit-bearing size: 512MB, 4GB, 2Gi, 900MiB, 1.5GB. SI and IEC spellings mean the same bytes — 2GB and 2Gi are both 2*1024^3 — so the spelling used by a ceiling profile's memory and a toolchain's measured_size works here too. A value this grammar cannot read is REFUSED, at tera validate and when the recipe loads, never converted: before kottera/kottera#3334 an unrecognised spelling silently kept a multiplier of 1, and 2Gi bounded the dispatch at two bytes. ENFORCED ON LINUX ONLY — cgroup-v2 memory.max where a delegated subtree is available, RLIMIT_DATA otherwise. On darwin it is accepted and bounds nothing: Seatbelt has no memory-ceiling primitive and the backend applies no rlimits, so the daemon reports every recipe declaring it at boot rather than leaving the declaration to read as a ceiling. On such a host the dispatch is bounded by timeout and nothing else."
+            },
+            "timeout": {
+              "type": "string",
+              "description": "Execution ceiling for the dispatch (Go duration). The one limit enforced identically on every platform, because the daemon performs the kill itself rather than asking the host for it. ITS CLOCK STARTS WHEN THE HANDLER IS CONFIRMED STARTED — the credential agent's acknowledgement that it has spawned the handler, or the sandbox leader's start on a dispatch with no agent — so none of the launch before that (sandbox spawn, credential-agent start, handler exec) is charged to it: handshake_timeout bounds the launch separately, and a slow launch fails as handshake_timeout, never as this timeout. IT IS MEASURED ON THE MONOTONIC CLOCK OF THE HOST RUNNING THE DISPATCH, NOT ON A WALL CLOCK — mach_absolute_time on darwin, CLOCK_MONOTONIC on linux, neither of which advances while the machine is suspended. So TIME THE HOST SPENDS ASLEEP DOES NOT COUNT AGAINST IT: on a fleet host that sleeps overnight a 2h ceiling can span days of calendar time, without limit, while the dispatch holds its seat and its workspace throughout. That direction is deliberate rather than incidental — a suspended dispatch makes no progress and burns no tokens, and a fleet host is a laptop — so size this against how much WORKING time the dispatch may have rather than against how long you are willing to wait, and read a run that outlived it on a wall clock as this property rather than as a broken timeout. A dispatch's own duration_ms log lines are on the same clock, so they agree with the ceiling and disagree with the watch."
+            },
+            "network": {
+              "type": "string",
+              "enum": [
+                "",
+                "false",
+                "true",
+                "scoped"
+              ],
+              "description": "Network posture. scoped activates the network egress allow-list."
+            },
+            "handshake_timeout": {
+              "type": "string",
+              "description": "Ceiling on the dispatch's LAUNCH (Go duration; 10s when unset): from the start of the dispatch until its handler is confirmed started — the credential agent's acknowledgement that it has spawned the handler, or the sandbox leader's start on a dispatch with no agent. A launch that overruns it is torn down and fails as handshake_timeout, naming the phase it was stuck in. It is independent of timeout and is never clamped to it: timeout's clock starts only when this one ends, so one dispatch lives for at most the sum of the two."
+            },
+            "read": {
+              "type": "array",
+              "description": "Filesystem read request: v1 tokens (any, workspace, tool_scratch, skill_dir) or absolute paths. Omitted requests any, which is what every tool asked for before this attribute existed; an empty list requests nothing beyond the sandbox floor. The ceiling still decides (ADR-069 D5).",
+              "items": {
+                "type": "string"
+              }
+            },
+            "write": {
+              "type": "array",
+              "description": "Filesystem write request, same vocabulary and same defaults as read. Narrowing it is recorded and intersected but does not confine anything yet: writes are bounded by the working directory plus declared volume mounts, and no backend consumes the write tokens. See PRD-012 section 4.4.5.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "platform_grants": {
+              "type": "array",
+              "description": "Platform-grant request: named, versioned bundles of platform-native sandbox clauses that are not filesystem paths. Omitted denies, and an empty list denies the same way — the opposite of read and write, which default to any, because this axis never had a synthesized value to preserve (ADR-103 D3). The ceiling still decides, and every ceiling the daemon ships grants no token. The vocabulary is closed: a token no backend registers is refused when the recipe loads, while a registered token this platform cannot honour is refused at dispatch, so a vault stays portable. The registered tokens and the exact clauses each expands to are generated into docs/reference/platform-grants.md; a set is minimal jointly and there is no way to request part of one.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "credentials": {
+          "type": "object",
+          "description": "Maps credential binding names to definition-level default values, in the tool kind's own shape: a value carrying a supported reference scheme (env://VAR, keychain://service, vault://path) is dereferenced, and anything else is the secret itself. A scheme this daemon cannot act on is REFUSED at resolution rather than injected as its own text.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables THE PROVISIONING PROCESS ITSELF needs in order to behave — assignment-shaped, exactly like a tool's. THIS IS NOT THE CONTRIBUTION BLOCK: the top-level env block one level up is what this toolchain adds to a CONSUMER'S dispatch, with set / prepend / append and composition rules, and the two share a keyword and nothing else. Nothing here reaches a consuming dispatch.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "network": {
+          "type": "object",
+          "description": "Egress allow-list for the provisioning dispatch, active when sandbox.network is scoped. This is the D5 grant, SCOPED TO PROVISIONING — which is what lets the same domains come out of every consuming dispatch's standing allow-list. THIS BLOCK AND sandbox.network ARE ONE GRANT WRITTEN IN TWO PLACES, and only the second is the switch: this says WHICH hosts, and sandbox.network decides whether the daemon starts the egress proxy and gives the sandbox any network at all. A block with an exec step that declares this allow-list while sandbox.network is neither scoped nor true is REFUSED AT LOAD, naming the sandbox block to add — because the step would otherwise run with no egress whatsoever while the allow-list read as a grant, and the failure surfaces as whatever generic network advice that program prints, naming no path and no cause, hundreds of megabytes into a provisioning run (kottera/kottera#3529, where the seeded playwright definition shipped exactly that shape). A FETCH-ONLY BLOCK NEEDS NO sandbox.network and is not refused: the daemon is the HTTP client for a fetch and applies the allow-list itself, which is why every other seeded definition declares this block alone and is correct.",
+          "properties": {
+            "allowed_domains": {
+              "type": "array",
+              "description": "Egress domains the sandboxed process may reach.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "allowed_domains"
+          ],
+          "additionalProperties": false
+        },
+        "api_proxies": {
+          "type": "object",
+          "description": "Credential-injecting API reverse proxies exposed to the provisioning process, in the shape a tool recipe once used. Present for D6's reason: it is how the token is kept out of the process that runs. THE WORD SURVIVES HERE AFTER BEING REFUSED ON A TOOL (ADR-152 D7), because this is a different consumer: it presents a credential while fetching a private artifact, on the daemon's own host, for the life of one provisioning run, and never reaches a dispatch. A tool's credential is a connection the dispatch's proxy presents; a provisioning run's is this block's.",
+          "properties": {
+            "proxy": {
+              "type": "array",
+              "description": "API reverse-proxy declarations.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Proxy name (unique within the tool)."
+                  },
+                  "target_url": {
+                    "type": "string",
+                    "description": "Upstream base URL the proxy forwards to."
+                  },
+                  "credential": {
+                    "type": "string",
+                    "description": "Credential binding name whose value is injected on the forward path."
+                  },
+                  "header": {
+                    "type": "string",
+                    "description": "Request header the injected credential is written to."
+                  },
+                  "header_prefix": {
+                    "type": "string",
+                    "description": "Optional prefix prepended to the injected header value (e.g. Bearer )."
+                  },
+                  "env_base_url": {
+                    "type": "string",
+                    "description": "Env var the sandboxed process reads to discover the proxy base URL."
+                  },
+                  "env_auth_token": {
+                    "type": "string",
+                    "description": "Optional env var carrying a loopback auth token for the proxy."
+                  }
+                },
+                "required": [
+                  "name",
+                  "target_url",
+                  "credential",
+                  "header",
+                  "env_base_url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "cli_shims": {
+          "type": "object",
+          "description": "REFUSED at load by name (ADR-148 D4): a CLI now reaches its credential through the dispatch's proxy, outside the sandbox, so the shim and the credential agent's shim role are gone. A recipe declaring this block does not register, at load, at tera config plan and by tera validate, and the refusal names docs/ops/upgrade-to-connections.md. Nothing inside the block is parsed, and it is not migrated mechanically: what replaces it is a toolchain supplying the CLI and, on each work-order type that runs it, toolchains = [\"<toolchain>\"] and a connection block choosing whose credential it uses. The member stays in this schema only because the recipes contract's published levels carry it (ADR-143 D3).",
+          "properties": {
+            "shim": {
+              "type": "array",
+              "description": "Retired with the block (ADR-148 D4).",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Retired with the block (ADR-148 D4)."
+                  },
+                  "binary": {
+                    "type": "string",
+                    "description": "Retired with the block (ADR-148 D4)."
+                  },
+                  "credential": {
+                    "type": "string",
+                    "description": "Retired with the block (ADR-148 D4)."
+                  },
+                  "env_var": {
+                    "type": "string",
+                    "description": "Retired with the block (ADR-148 D4)."
+                  }
+                },
+                "required": [
+                  "command",
+                  "binary",
+                  "credential"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "mcp_servers": {
+          "type": "object",
+          "description": "MCP servers the provisioning process may reach through a daemon-side bridge that attaches the credential outside the sandbox, in the tool kind's own shape.",
+          "properties": {
+            "server": {
+              "type": "array",
+              "description": "MCP-server declarations.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Server name the sandbox addresses this endpoint by (unique within the tool)."
+                  },
+                  "exposure": {
+                    "type": "string",
+                    "description": "Name of an mcp_exposure served by this daemon. Mutually exclusive with url; exactly one of the two is required."
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Absolute MCP endpoint for a server this daemon does not itself expose. Mutually exclusive with exposure; exactly one of the two is required."
+                  },
+                  "credential": {
+                    "type": "object",
+                    "description": "WHOSE credential the daemon attaches on the forward path — the relay's subject (ADR-135 D19). It is a wrapper holding exactly one variant block, spec or filer, and a server declaring neither or both is refused at load. AT TOOL GRAMMAR v1 THIS WAS AN ATTRIBUTE, credential = \"<spec-name>\", and a v1 recipe still loads unedited: the v1 to v2 migration rewrites it to credential { spec \"<spec-name>\" {} }, which is what it always meant. The attribute is not kept beside the block, because an attribute-or-block pair would be a new field-presence union and ADR-087 section 5 closes those at two. Whichever arm is declared, the credential's VALUE is attached outside the sandbox and the sandboxed process never holds it.",
+                    "properties": {
+                      "spec": {
+                        "type": "object",
+                        "description": "Attach a credential_spec declared on this same tool, named in the block label. The principal the far side sees follows from whatever the WORKER'S BINDING resolves that spec to, which is what lets one tool spec serve several agents with different principals. This is what every pre-v2 credential = \"<name>\" attribute meant. Exactly one of the spec or filer blocks must be declared (ADR-087 D4).",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The credential_spec on this tool whose value is attached on the forward path (the HCL block label). It must name a spec this same tool declares: an unresolvable reference would resolve to nothing at dispatch, which is a silently unauthenticated bridge rather than a loud misconfiguration, so it is refused at load."
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "filer": {
+                        "type": "object",
+                        "description": "Attach the DELEGATION SUBJECT'S credential: the person who filed the Work Order this dispatch belongs to (ADR-135 D4). The daemon presents a per-dispatch token minted from its own issuer and the gateway sees a caller whose principal is that person, so token selection, tool filtering and audit all key on them rather than on the worker. It is not impersonation and it grants nothing: the delegation subject decides which DELEGATED TOKENS a dispatch may use and decides nothing about permissions, which remain the authorization subject's (ADR-060 section 5). It takes no label and no fields, because the subject is a property of the Work Order being dispatched rather than a reference an author supplies. A type whose bindings reach this arm and which can only be filed by a schedule, trigger, mirror or the daemon is refused at validation, since such work has no delegation subject and can never acquire one. Exactly one of the spec or filer blocks must be declared (ADR-087 D4).",
+                        "properties": {},
+                        "additionalProperties": false
+                      }
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "spec"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "filer"
+                        ]
+                      }
+                    ],
+                    "additionalProperties": false
+                  },
+                  "tools": {
+                    "type": "array",
+                    "description": "Verb allow-list: the MCP tool names an invocation through this server may name. Required and non-empty — it is what bounds in-session reach.",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "credential",
+                  "tools"
+                ],
+                "oneOf": [
+                  {
+                    "required": [
+                      "exposure"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "url"
+                    ]
+                  }
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "consumer_sandbox": {
+      "type": "object",
+      "description": "What this toolchain does to the sandbox profile of every dispatch that MOUNTS it (ADR-176 D1, D2), as against provision { sandbox {} }, which governs only the toolchain's own provisioning dispatch. It exists because an application's sandbox quirks are knowledge of the application, so they belong in its definition rather than in core. It holds a platform_grants request, which widens and so is bounded by consent and a ceiling, and repeated conceal blocks, each of which only takes a read away: none needs consent or a ceiling, and none can widen anything. A block declaring neither changes nothing and is refused at load.",
+      "properties": {
+        "platform_grants": {
+          "type": "array",
+          "description": "The ADR-103 platform grants this toolchain requests for every dispatch that mounts it (ADR-176 D4), spelled as on a tool's sandbox {}: gpu@1. A REQUEST, not a grant. A plugin's toolchain gets a token only where its installation approved the manifest's sandbox { toolchains { platform { grants } } } and the operator's plugin-request-cap admits it; any other toolchain gets one only where its vault's ceiling (system-vault-default or user-vault-default) grants it, and no seeded ceiling grants any. What is effective is UNITED with the tool's own effective set, so a mounted toolchain can add a grant to a dispatch and never take one away. A token with no expansion on the executing host's platform is DROPPED for that dispatch and named in its sandbox_platform_grants line, never refused: a toolchain serves the platforms it declares with or without the grant, unlike a tool, whose request is a precondition. A token in no backend's vocabulary, or a repeated one, is refused at load. Pair a grant with a conceal's unless_granted when the application needs the concealment only while the grant is absent, as builtin:blender does with gpu@1.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "conceal": {
+          "type": "array",
+          "description": "Repeated, and takes no label: paths this toolchain's own signed executable may not read in a dispatch that mounts it, however the rest of the profile grants them (ADR-176 D3). ON DARWIN each path becomes one rule, (deny file-read* (require-all (literal <path>) (signing-identifier <id>))), emitted after every allow in the profile because filtered rules are last-match-wins (ADR-069 D6), so the path is hidden from that one binary and from nothing else in the dispatch. ON LINUX it is inert, because there is no signing identity to scope a rule to, and the executing host records it as conceal_skipped rather than dropping it silently. A dispatch's sandbox_ceiling_applied line names every concealment it carries. builtin:blender is the worked case: hidden from Blender, /System/Library/CoreServices/SystemVersion.plist makes its Metal probe fail the OS-version check and fall back to the CPU, where without it Blender crashes at startup in every darwin dispatch.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "signing_identifier": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The code-signing identifier of the binary the paths are hidden from, as codesign -dv prints it: org.blenderfoundation.blender. Required; an empty one, or one carrying whitespace, a quote or a backslash, is refused at load. It is what makes the rule one binary's: every other process in the dispatch keeps the read."
+              },
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "description": "The host paths hidden, at least one, each an ABSOLUTE LITERAL path: /System/Library/CoreServices/SystemVersion.plist. Neither a glob nor a subtree is accepted, because a concealment is a surgical, measured narrowing and a subtree would invite the broad denials ADR-069 avoids. Refused at load: a relative path, the root, an unclean path (a trailing slash included), a glob character, and a quote, backslash or newline.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "unless_granted": {
+                "type": "array",
+                "description": "Platform-grant tokens (ADR-103) that waive this concealment: when any one of them is effective in a dispatch, the concealment is omitted there, because the grant gives the application what the concealment was standing in for. Omitting it means the concealment always applies. A token in no backend's platform-grant vocabulary is refused at load.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "signing_identifier",
+              "paths"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,63 @@
+# The CI workflow that runs the gate. Copy it to .github/workflows/gate.yml.
+#
+# It runs the same command as the profile's `## Gate`, `sh scripts/gate.sh`,
+# on every pull request and on every push to the default branch, so a green
+# check means what a green gate means. Make its `gate` job the branch's one
+# required check.
+#
+# Each toolchain step runs only where the repository has that language's
+# manifest, so the file needs no editing for a single-language repository.
+# Delete the steps for languages the repository will never use.
+name: gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request supersedes the run in flight.
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        if: hashFiles('go.mod') != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Rust
+        if: hashFiles('Cargo.toml') != ''
+        run: rustup component add rustfmt clippy
+
+      - name: Set up Python
+        if: hashFiles('pyproject.toml', 'requirements*.txt') != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Python dependencies
+        if: hashFiles('pyproject.toml', 'requirements*.txt') != ''
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then python -m pip install -e .; fi
+
+      - name: Set up Node
+        if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Gate
+        run: sh scripts/gate.sh

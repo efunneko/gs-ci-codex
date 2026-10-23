@@ -1,0 +1,614 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/plugin/v2",
+  "title": "Plugin installation recipe (v2)",
+  "description": "Schema for `.tera/plugins/<name>/plugin.hcl` per [ADR-140](../adr/ADR-140-the-plugin-model.md) D3. A **plugin installation** is the operator's half of a plugin: the plugin author declares what it needs and offers in a *manifest*, and the installation decides everything the manifest may not — which of its requested grants are approved, how it is hosted, its configuration and where its secrets come from. Two documents, two authors (D2, D3): the manifest names nothing the operator decides.\n\n**It is a bundle, not a file.** An installation is the directory `.tera/plugins/<name>/`, holding `plugin.hcl` (one `plugin` block — this schema), `manifest.hcl` (the plugin's manifest, vendored and pinned by digest from `manifest {}`, whose own schema is the `plugin_manifest` contract published in `sdk/plugin/manifest`), and for a private plugin a `vault/` recipe tree, the packed archives a manifest's `bundled { source = \"./…\" }` names, at the path the source gives relative to the manifest — `tera plugin pack` writes `./<name>-${platform.os}-${platform.arch}.tar.gz`, so they sit at the bundle's top, and `tera plugin add` vendors them there (ADR-140 D5, ADR-146 D2) — or a `dist/` directory holding them, and a `src/` source tree the daemon never reads. Nothing else may sit at the top of the bundle. The **directory name is the identity** — the answer skill bundles give — so a `plugin` block label, if written, must equal it; the name is lower-case letters, digits and `-`, so it can never be a wildcard or a separator inside a topic level, a resource string or the vault alias built from it. The vendored manifest's own label must equal it too.\n\n**Loading an installation runs nothing.** It is read, validated against its vendored manifest, and held in the loaded configuration. Reviewing its grants, provisioning its artifacts, mounting its vault and running its process are separate acts, and none of them happens because a file was loaded. Its manifest's `artifacts` are the toolchain `plugin.<vault>.<name>`, which only `tera config apply --provision` provisions, and only once every grant is decided. `tera plugin add` and `tera plugin upgrade` are the golden path for writing one.",
+  "type": "object",
+  "required": [
+    "version",
+    "name",
+    "manifest",
+    "buildable"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v2",
+      "description": "Per-recipe grammar version. Required; this schema applies when version is v2. A plugin.hcl at v1 is read through the v1→v2 migration, which writes buildable = false (ADR-158 D4)."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The installation's name (the HCL block label). Optional: the bundle directory's name is the identity, so a label, if written, must equal it. Lower-case letters, digits and -, starting with a letter or digit. The plugin's principal is plugin:<vault>/<name> and its vault alias plugin.<name>, so the name can never carry a wildcard or a separator."
+    },
+    "manifest": {
+      "type": "object",
+      "description": "The vendored manifest this installation was made against: where it came from and the digest of the manifest.hcl beside this file. A manifest.hcl whose digest does not match refuses the installation, naming both digests, so the manifest a review approved is the manifest that is loaded.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where tera plugin add or upgrade read the manifest from, as one of four locator forms: a url; a local path, for a private plugin; a git locator, git+https://<host>/<repo>@<ref>#subdirectory=<dir> or the same with git+ssh://; or an OCI locator, oci://<registry>/<repository>:<tag> or oci://<registry>/<repository>@sha256:<hex>. It is provenance for the operator and the source upgrade reads next; the daemon never fetches it, and loads only the vendored manifest.hcl."
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The digest of the vendored manifest.hcl's bytes, written sha256: followed by 64 lower-case hex digits. A manifest.hcl whose digest differs refuses the installation, naming both digests."
+        }
+      },
+      "required": [
+        "source",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "hosted": {
+      "type": "object",
+      "description": "tera hosts the plugin: its supervisor runs the plugin's process (ADR-140 D7), and a plugin whose release is only a vault of recipes has nothing more to host. Exactly one of hosted and attached.",
+      "properties": {
+        "placement": {
+          "type": "object",
+          "description": "Where the plugin's code runs, which depends on whether its release declares a process — whether its manifest's artifacts names an entry. For a release with a process, the host its one instance is placed on (ADR-140 D11); absent means the daemon's own host, and a plugin is never scheduled onto a host its installation does not name. For a release that declares no process, the host pool its own tools are drawn on when the caller names none (ADR-153 D3); absent means its tools have no placement of their own and are drawn where any other capability would be.",
+          "properties": {
+            "pool": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A host pool: a declared pool whose members are machines (runners), or implicit-fleet. A pool that is not one, or none of whose members can run the plugin, is refused at plan (plugin_pool_unplaceable), naming the installation, the pool and the fact. What the pool is for depends on whether the release declares a process. FOR A RELEASE THAT DECLARES NO PROCESS (ADR-153 D3) there is no instance to place: this is the host pool the plugin's own tools, plugin.<name>/tools/*, are drawn on when the caller names none, on every road that draws a seat for them — a gateway call, a Work Order step, a select site and a session's granted tool alike. Each dispatch draws among the pool's members that offer the tool, so nothing is chosen once and nothing sticks. A worker's or binding's capability_credentials seat_pools still outranks it, and it outranks runner_link.default_host_pool and the implicit fleet; it keys only this plugin's own tools, never another vault's tool of the same name. Absent, the tools have no placement of their own and are drawn where any other capability would be. FOR A RELEASE WITH A PROCESS (ADR-140 D11) this is the pool the plugin is placed on. The plugin runs on ONE member, chosen once among those linked, speaking the plugin link version and on a platform the plugin's artifacts are published for — the highest sha256(principal, member) among them, so the choice is deterministic — and recorded durably. IT STICKS: a stateful plugin's data volume lives on its host, so a host that later cannot run it leaves the plugin down, naming why, and never moves it; moving it is a migration the operator performs. No seat is drawn. A pool with no eligible member is refused at placement (plugin_placement_refused), naming the fact. A release fetched from a url (tera plugin pack --url <location>) is fetched by the runner from its origin. A release only the daemon can fetch — one fetched with the installation's audience = \"fetch\" secret, or a bundled release (what tera plugin pack writes without --url: bundled { source = \"./<name>-${platform.os}-${platform.arch}.tar.gz\" }, relative to the release directory and vendored at that path in the installation's bundle directory) — is placed like any other: the daemon fetches it or reads the bundle, verifies it, and relays the archive to the runner over the runner link, so the runner never holds the credential or the bundle (ADR-146 D9) and checks the archive against the manifest's sha256 itself. Such a release admits only a runner whose link speaks the archive relay's version, so a runner below it is never chosen while another member passes, and the refusal names the runner and both versions. A bundled release on a pool whose local member (the daemon's own host) is eligible is placed on local, whatever the score would rank, and read there in place with no relay; this is a preference, never an admission fact, so a pool without an eligible local places it on a runner and relays it."
+            }
+          },
+          "required": [
+            "pool"
+          ],
+          "additionalProperties": false
+        },
+        "data_size_limit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The ceiling on the plugin's data volume, as a unit-bearing size: 512MB, 10GiB, 1.5GB. The data volume is the ADR-071 owned volume of the plugin principal the daemon creates on the plugin's first start (ADR-140 D12), and this is the quota it declares. Units are powers of 1024 whichever family you spell them in (10GB and 10GiB are the same bytes), exactly as a data_volume's size_limit reads them; a unit is required, and 0 is refused, because zero is how the volume manager spells no ceiling and an operator who wrote a bound must not silently get none. ABSENT MEANS UNLIMITED — the same reading a data_volume's unset size_limit has — so an installation written before this attribute loads and behaves exactly as it did. It lives on the installation, not the manifest: how much of this host's disk a plugin may hold is the operator's decision. It is reloadable: an edit updates the volume's recorded ceiling and restarts a running plugin with the new value on the pass the reload kicks (ADR-122 D7), keeping the volume and its contents. NO BACKEND ENFORCES IT AT WRITE TIME IN THIS BUILD: the plugin writes its data volume's host directory directly, which no sandbox backend and no volume provider bounds in bytes, so the plugin's posture names data_size_limit among its unenforced limits and the supervisor warns at the plugin's start; the volume manager holds the ceiling only against a copy it makes itself."
+        },
+        "step_output_limit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The most one of the plugin's own Work Orders may name as the bound of its output directory, as a unit-bearing size read as data_size_limit is: 4GiB, 20GB. When the plugin files a Work Order of a type in its own vault it may name one directory of its data volume the dispatch writes, with the most that directory may hold when the step ends (plugin_data { output { dir, bound_bytes } } on work_order.create, ADR-140 D12 Amendment 2); that bound must be at least 1 GiB and at most this. ABSENT ADMITS NO OUTPUT DIRECTORY: a filing naming one is refused, naming this attribute, so a plugin cannot hand its steps disk the operator never decided to give. It lives on the installation, beside data_size_limit, because how much of this host's disk one step may write is the operator's decision; the output directory is inside the data volume, so data_size_limit is the larger bound on what the steps leave behind. It is reloadable, and decides filings made after the reload: a Work Order already filed keeps the bound it was admitted with."
+        }
+      },
+      "additionalProperties": false
+    },
+    "attached": {
+      "type": "object",
+      "description": "The plugin runs elsewhere and attaches to tera, proving itself with a key pair whose private half never leaves its host (ADR-141 D2). tera does not supervise it. Exactly one of hosted and attached.",
+      "properties": {
+        "public_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The plugin's public key, PEM-encoded (BEGIN PUBLIC KEY). The plugin signs a short client assertion with the private half (RFC 7523 private_key_jwt) and presents it at tera's token endpoint, which verifies it against this key: with the client_credentials grant it obtains an access token for its own principal, plugin:<vault>/<name>, and reaches tera's routes over the network with only that principal's grants; with token exchange it acts for a present person, as a hosted plugin does over its socket (ADR-141 D2, D5). An attached installation is therefore a commit containing no secret at all."
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The absolute http or https base URL the plugin serves its inbound routes at — its tools and its health response — which tera dials (ADR-140 D9). It must name a host, and carries no userinfo, query or fragment: a credential written into it would be a secret in an installation that holds none. An attached plugin gets no UI route: the reverse proxy serves hosted plugins' UIs only."
+        }
+      },
+      "required": [
+        "public_key",
+        "endpoint"
+      ],
+      "additionalProperties": false
+    },
+    "buildable": {
+      "type": "boolean",
+      "description": "Whether repositories may build on this installation (ADR-158 D4). Required, and written either way: tera plugin add --buildable writes true, and tera plugin add without the flag writes false. TRUE admits a vault holding vaults/build-on/<kind> to read this installation's recipes of that kind (ADR-158 D5): work-order-types, workflows, skills, inline-skills and toolchains. An explicit vault:read grant still admits a read whatever this says, and an explicit system-vault deny still refuses one. FALSE means a vault reads its recipes only by an explicit vault:read grant, which is what every installation meant before this attribute: a plugin.hcl at v1 migrates to false. It is the installation's, never a release's: tera plugin upgrade keeps it, across a major too, and a retained block refuses it. A plugin's own principal reads its bound dependencies by construction and is not reached by it (ADR-158 D5 item 7). tera config plan's plugin review shows it, with the kinds it admits."
+    },
+    "path_based_ui": {
+      "type": "boolean",
+      "description": "ELEVATED. Opt this installation's UI into path-based serving under tera's own origin (ADR-140 D15), instead of the plugin's own subdomain, <name>.<plugins_domain>. Absent or false means subdomain serving, which is the default and the golden path. On tera's origin the plugin's script is where tera's own session cookie reaches it, so a person's tera session is usable by the plugin: exactly the property per-origin sessions exist to prevent. Opt in only for a plugin you trust as you trust tera itself. tera config plan marks an installation that opts in elevated in its plugin review, and says why. Over plain http it is served only when tera's origin is on localhost or a name under .localhost, because only there may its session cookie go without Secure; on any other http origin, a literal loopback address such as 127.0.0.1 included, the proxy refuses it. A developer daemon on http://127.0.0.1 is reached as http://localhost instead. Refused on an installation whose manifest serves no ui."
+    },
+    "browser_face": {
+      "type": "boolean",
+      "description": "Serve this installation's UI on the deployment's browser face (ADR-182 D6): at <name>.<plugins_domain> on the browser listener, with the plugin origin's scheme and port taken from the face's url. Absent or false means the UI is served on the agents' door only, whatever DNS resolves. An exposure decision: on a deployment whose face is public, the internet can reach a UI that opts in. A path-based UI is never served on the face, so tera config plan refuses an installation declaring both browser_face = true and path_based_ui = true. Refused on an installation whose manifest serves no ui."
+    },
+    "config": {
+      "type": "object",
+      "description": "The plugin's configuration, as attributes. Its shape is the plugin's: it is validated against the vendored manifest's config_schema at plan and apply (ADR-140 D13), and a manifest with no config_schema takes none. Absent means no configuration.",
+      "additionalProperties": true
+    },
+    "secret": {
+      "type": "array",
+      "description": "A secret the installation supplies, labelled by the name the plugin knows it by. The value is never written here: the block names a reference and who receives it. Declaring one name twice is refused.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name the plugin knows this secret by (the block label). Lower-case letters, digits, _ and -, starting with a letter or digit."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Where the value is: a secret://, keychain:// or env:// reference with a name after the scheme. tera secret set writes a secret:// value, and plan names every secret:// reference it cannot find (ADR-140 D13)."
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "plugin",
+              "tera",
+              "fetch"
+            ],
+            "description": "Who receives the value. plugin — resolved at launch and delivered over the plugin's tera socket, never through its environment. tera — held by tera to verify what the plugin submits, and never delivered into the plugin's sandbox (ADR-141 D9). fetch — held by tera and presented only by the daemon's provisioner when it downloads this installation's own release archives: for a remote origin, as Authorization: Bearer <value> to the url's own host and to no host a redirect leads to. It is never delivered into the plugin's sandbox, never sent to a dependency's origin, and never sent to a runner (ADR-146 D8, D9); at most one secret per installation has it. Required, with no default: whether a secret enters the plugin's sandbox is decided by the operator, never by omission."
+          }
+        },
+        "required": [
+          "name",
+          "ref",
+          "audience"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "grant": {
+      "type": "array",
+      "description": "The decision on one grant the manifest requests, labelled by the manifest's grant id. A label the manifest does not request is refused, and so is one id decided twice. A requested grant with no block here is undecided, exactly as decision = undecided is: nothing is granted by being requested (ADR-140 D4).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The manifest grant id this block decides (the block label)."
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "declined",
+              "undecided"
+            ],
+            "description": "The operator's decision. undecided blocks the plan until someone decides (ADR-140 D4); tera plugin add writes every new grant undecided."
+          },
+          "request_digest": {
+            "type": "string",
+            "description": "What the decision was made about: the digest of the manifest grant's request — which request it is and every resource it names, not its purpose — when the decision was made, written sha256: followed by 64 lower-case hex digits. Required when decision is approved or declined, and refused when it is undecided, because an undecided grant was decided about nothing. A decision stands only for the request it was made about (ADR-140 D4), so a manifest whose grant has since changed underneath it re-opens the decision at plan. tera plugin add and upgrade write it; an author never computes it by hand."
+          },
+          "ceiling": {
+            "type": "object",
+            "description": "The most a vouching grant may do for the person it vouches for: every inbound action is authorized as that person's grants intersected with this ceiling (ADR-141 D11). Required on a grant whose manifest request is vouch, whatever its decision, and refused on any other. It may be empty — tera plugin add writes it so — and plan refuses an approved vouching grant whose ceiling is empty.",
+            "properties": {
+              "actions": {
+                "type": "array",
+                "description": "The actions the ceiling admits, in the role grant vocabulary (ADR-010), e.g. invoke.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "resources": {
+                "type": "array",
+                "description": "The resource patterns the ceiling admits, in the role grant vocabulary, e.g. api/v1/workorders/create.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "accept_evidence": {
+            "type": "array",
+            "minItems": 1,
+            "description": "This installation's narrowing of the deployment's evidence policy for the transport class this vouching grant vouches for (ADR-141 D11): the classes an inbound submission of that class may rest on, from verified (a raw request tera verified itself) and asserted (the plugin's word). It NARROWS AND NEVER WIDENS — what a submission may rest on is always the deployment's auth { plugin_evidence { accept } } intersected with this list, and config plan refuses an installation it installs or changes whose list names a class the deployment's policy does not accept (plugin_evidence_widened). ABSENT NARROWS NOTHING, so the deployment's policy answers. Valid only on a grant whose manifest request is vouch. A member outside the vocabulary is refused at load, and so is an empty list, which would read as unset to one reader and as accept-nothing to another; decline the grant to accept nothing. It is a field on the decision rather than a second switch: the deployment's policy is the one switch.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "asserted"
+              ]
+            }
+          },
+          "workers": {
+            "type": "array",
+            "description": "The workers a Work Order this grant files may be owned by, and so run as (ADR-141 D6). A plugin filing as itself names the owning worker on the create, and on each of its triggers' worker; a worker not listed here is refused at the create and at the trigger's mount. Each entry is one worker's name, written out: no wildcard, and nothing defaults it — not even on a deployment with one worker, because the only worker silently widens once a second is added. The plugin's manifest never supplies it. Required on a grant whose manifest request is as_itself, whatever its decision, and refused on any other. It may be empty — tera plugin add writes it so — and plan refuses an approved as_itself grant whose list is empty. The plan's review lists the deployment's workers with what each may invoke, beside the types requested, so the choice is informed. Filing as itself is for work with no person behind it — triggers, background jobs — on a worker the operator chose; work a person asks for goes through on_behalf_of, which runs as that person within the intersection of their grants and the plugin's (ADR-141 D5).",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "types": {
+            "type": "array",
+            "description": "The Work Order types an on_behalf_of grant that leaves its types to the installation may file for the person it acts for (ADR-162 D8): its manifest names work_order/create and writes no types, because the author of a UI over a whole deployment cannot know its types and the operator can. Each entry is one type's canonical key, <vault>/work-order-types/<name>, or a declared address, plugin.<name>/work-order-types/<name>, read as the manifest's own entries are; or the single entry #, which means every type the person may file, and which the plan's review highlights. A create is still decided on the person's own grants as well: the plugin never files a type the person may not. Required on such a grant, whatever its decision, and refused on every other grant — a manifest that names its types is their one home. It may be empty — tera plugin add writes it so — and plan refuses an approved grant whose list is empty. It is the operator's decision, not the manifest's request, so it is not in request_digest, and editing it re-opens nothing; the review shows an edit that widens it.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "decision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "connection": {
+      "type": "array",
+      "description": "The decision on one connection the plugin's vault carries, labelled by the connection's file stem (ADR-159 D7.3). It is decided as a grant is: one stem decided twice is refused, and a connection with no block here is undecided, exactly as decision = undecided is: no credential is delivered for a connection by its being carried.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stem": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The file stem of the connection in the plugin's vault that this block decides (the block label)."
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "declined",
+              "undecided"
+            ],
+            "description": "The operator's decision, as a grant's is (ADR-140 D4): approved, declined or undecided."
+          },
+          "request_digest": {
+            "type": "string",
+            "description": "What the decision was made about: the digest of the connection's resolved routes and hosts when the decision was made — each host route's name, address, header, value template and refuse list, each git route's name, address and username, the passthrough hosts, raw_delivery, and the hosts of its OAuth authorization server and account URL, never a description — written sha256: followed by 64 lower-case hex digits. Required when decision is approved or declined, and refused when it is undecided, because an undecided connection was decided about nothing. A connection that no longer has this digest re-opens the decision: it is undecided until someone decides again (ADR-159 D7.3)."
+          }
+        },
+        "required": [
+          "stem",
+          "decision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "description": "The decision on the manifest's tool sandbox request, its sandbox { tools {} }: the wall clock, CPU time, memory and platform grants the tools the plugin's vault ship ask for beyond the operator's default ceiling (ADR-140 D8 Amendment 2). Unlabelled, because a manifest makes one request. Required when the manifest declares sandbox { tools {} } and refused when it does not. It is decided as a grant is, and undecided refuses the plan. Only an approved decision over the request as it stands widens anything, and never above the operator's plugin-request-cap; a declined one leaves the tools under the operator's default ceiling. It records no values of its own.",
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "declined",
+            "undecided"
+          ],
+          "description": "The operator's decision, as a grant's is (ADR-140 D4): approved, declined or undecided. tera plugin add writes undecided, and --approve-sandbox approves the request as it stands."
+        },
+        "request_digest": {
+          "type": "string",
+          "description": "What the decision was made about: the digest of the manifest's sandbox { tools {} } when the decision was made, over its wall clock and CPU time in seconds, its memory in bytes and its platform grants sorted, written sha256: followed by 64 lower-case hex digits. A respelling of a value moves nothing; any change to a value or a token moves it, a narrowing included. Required when decision is approved or declined, and refused when it is undecided. A release whose request no longer has this digest re-opens the decision: it is undecided until someone decides again."
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "additionalProperties": false
+    },
+    "sharing": {
+      "type": "object",
+      "description": "The installation's caps on sharing through the plugin, and its consent to the grantees the manifest's shareable kinds request (ADR-174 D5). Unlabelled, one per installation. ABSENT, EVERY ATTRIBUTE TAKES ITS DEFAULT, so an installation is capped before its operator decides anything; tera plugin add writes it with every default spelled out when the manifest declares a shareable kind. The caps are shown in the plan's review and never decided; the grantee request is decided as a grant is. It belongs to the installation, never to a retained major.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether people may share through the installation. false refuses every share and stops every share of the installation from deciding; the shares are kept and decide again when it is true."
+        },
+        "grantees": {
+          "type": "string",
+          "enum": [
+            "members",
+            "guests",
+            "addresses"
+          ],
+          "description": "The operator's ceiling on who a share may name. members: a person who is not a guest. guests also admits a person of class guest; addresses also an email address no person holds, which creates an invitation. Each admits everything the one before it does. Never wider than the widest request of the manifest's shareable kinds, and nothing wider than members decides until the request is approved: a kind is shared with the narrower of its own request and this value, and with members while the request is undecided, declined or decided about another request. tera plugin add writes the widest request; tera plugin upgrade never moves it."
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "declined",
+            "undecided"
+          ],
+          "description": "The operator's consent to the manifest's grantee requests, as a grant's decision is (ADR-140 D4): approved, declined or undecided. Required when a shareable kind requests grantees wider than members, where absent or undecided refuses the plan; refused when none does. tera plugin add writes undecided, and --approve-sharing approves the request as it stands. A declined request with grantees wider than members is refused at plan."
+        },
+        "request_digest": {
+          "type": "string",
+          "description": "What the decision was made about: the digest of the sorted (kind, grantees) pairs of every shareable kind requesting wider than members, written sha256: followed by 64 lower-case hex digits. Any change to that set moves it, a narrowing included. Required when decision is approved or declined, and refused when it is undecided. A release whose requests no longer have this digest re-opens the decision: it is undecided until someone decides again."
+        },
+        "max_expiry": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The latest expiry a share may take, measured from the act: a positive duration in Nd, h, m or s. A kind's default expiry longer than it is clamped to it. Lowering it does not shorten a live share."
+        },
+        "max_active_per_sharer": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The live shares one sharer may hold on the installation. Lowering it ends no live share."
+        },
+        "max_pending_invitations_per_sharer": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The shares one sharer may hold on the installation whose grantee is a pending invitation to an address. Lowering it ends no live share."
+        }
+      },
+      "additionalProperties": false
+    },
+    "builds_on": {
+      "type": "array",
+      "description": "The installation one of the manifest's builds_on dependencies is bound to, labelled by the plugin the manifest's builds_on block names (ADR-158 D2): the decision half of the pair whose request is the manifest's, as grant is. ABSENT, A DEPENDENCY BINDS TO THE INSTALLATION NAMED AFTER THE PLUGIN, when that installation holds that plugin, which is the golden path; write a block only when the plugin is installed under another name (tera plugin add --as). A binding chooses an installation, never a major: the major is the manifest's. A label the manifest does not declare is refused at load, and so is one bound twice. At plan, a dependency nothing binds, one bound to an installation holding another plugin or none, and one whose bound installation does not provide the declared major are each refused, naming the block or file that would admit it. The plugin's references to the dependency, plugin.<dependency>/<kind>/<stem>, resolve to the bound installation's release, its code plugin.<dependency>/toolchains/<dependency> to that installation's synthesized toolchain, and its principal is compiled a read of the bound installation's recipes, vault:read:plugin.<installation>/#, and nothing else (ADR-158 D5 item 7). The plan's review lists each binding.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "plugin": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The plugin the manifest's builds_on block of the same label names (the block label)."
+          },
+          "installation": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The installation the dependency is bound to: an installation's name, lower-case letters, digits and -, starting with a letter or digit. At plan it must hold the plugin the label names and provide the major the manifest declares."
+          }
+        },
+        "required": [
+          "plugin",
+          "installation"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "retained": {
+      "type": "array",
+      "description": "One major of this installation's plugin that the installation keeps beside its current one, labelled by that major (ADR-158 D7.1): a component of the one installation, never an installation of its own (ADR-156 D1 item 5), so the installation keeps one name, one principal and one hosting. Its files are the bundle's retained/<major>/ directory, holding that major's vendored manifest.hcl and, where its release vendors them, vault/, tools.json and dist/, each held to its own manifest's digests exactly as the current major's are. It carries what is per release: the manifest pin, config, secret blocks, grant, connection and sandbox decisions and builds_on bindings, each read and refused as the top-level block of the same name is, against the retained major's own manifest. Hosting, placement, path_based_ui and buildable are the installation's and are refused inside it, naming the record. Also refused at load, each naming the record: a label that is not a major token (v<N>, or v0.<m> before 1.0), a label equal to the current major, a label that disagrees with the major of its vendored manifest's version, a major retained twice, a record whose retained/<major>/ tree is absent, and a retained/<major>/ tree no record names. ABSENT, THE INSTALLATION HOLDS ONE MAJOR, which is every installation tera plugin add writes.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "major": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The major this record retains (the block label): v<N> from 1.0, v0.<m> before it, the major of the version its vendored retained/<major>/manifest.hcl declares."
+          },
+          "manifest": {
+            "type": "object",
+            "description": "The retained major's vendored manifest: where it came from and the digest of retained/<major>/manifest.hcl. A manifest whose digest does not match refuses the installation, as the current major's does.",
+            "properties": {
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Where tera plugin add or upgrade read the manifest from, as one of four locator forms: a url; a local path, for a private plugin; a git locator, git+https://<host>/<repo>@<ref>#subdirectory=<dir> or the same with git+ssh://; or an OCI locator, oci://<registry>/<repository>:<tag> or oci://<registry>/<repository>@sha256:<hex>. It is provenance for the operator and the source upgrade reads next; the daemon never fetches it, and loads only the vendored manifest.hcl."
+              },
+              "digest": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The digest of the vendored manifest.hcl's bytes, written sha256: followed by 64 lower-case hex digits. A manifest.hcl whose digest differs refuses the installation, naming both digests."
+              }
+            },
+            "required": [
+              "source",
+              "digest"
+            ],
+            "additionalProperties": false
+          },
+          "config": {
+            "type": "object",
+            "description": "The retained major's own configuration, validated against its own vendored manifest's config_schema. Configuration is per major: no value is shared with the current major's config (ADR-158 D7.5).",
+            "additionalProperties": true
+          },
+          "secret": {
+            "type": "array",
+            "description": "A secret the retained major is supplied, as the top-level secret block.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The name the plugin knows this secret by (the block label). Lower-case letters, digits, _ and -, starting with a letter or digit."
+                },
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Where the value is: a secret://, keychain:// or env:// reference with a name after the scheme. tera secret set writes a secret:// value, and plan names every secret:// reference it cannot find (ADR-140 D13)."
+                },
+                "audience": {
+                  "type": "string",
+                  "enum": [
+                    "plugin",
+                    "tera",
+                    "fetch"
+                  ],
+                  "description": "Who receives the value. plugin — resolved at launch and delivered over the plugin's tera socket, never through its environment. tera — held by tera to verify what the plugin submits, and never delivered into the plugin's sandbox (ADR-141 D9). fetch — held by tera and presented only by the daemon's provisioner when it downloads this installation's own release archives: for a remote origin, as Authorization: Bearer <value> to the url's own host and to no host a redirect leads to. It is never delivered into the plugin's sandbox, never sent to a dependency's origin, and never sent to a runner (ADR-146 D8, D9); at most one secret per installation has it. Required, with no default: whether a secret enters the plugin's sandbox is decided by the operator, never by omission."
+                }
+              },
+              "required": [
+                "name",
+                "ref",
+                "audience"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "grant": {
+            "type": "array",
+            "description": "The decision on one grant the retained major's manifest requests, as the top-level grant block, against that manifest.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The manifest grant id this block decides (the block label)."
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "approved",
+                    "declined",
+                    "undecided"
+                  ],
+                  "description": "The operator's decision. undecided blocks the plan until someone decides (ADR-140 D4); tera plugin add writes every new grant undecided."
+                },
+                "request_digest": {
+                  "type": "string",
+                  "description": "What the decision was made about: the digest of the manifest grant's request — which request it is and every resource it names, not its purpose — when the decision was made, written sha256: followed by 64 lower-case hex digits. Required when decision is approved or declined, and refused when it is undecided, because an undecided grant was decided about nothing. A decision stands only for the request it was made about (ADR-140 D4), so a manifest whose grant has since changed underneath it re-opens the decision at plan. tera plugin add and upgrade write it; an author never computes it by hand."
+                },
+                "ceiling": {
+                  "type": "object",
+                  "description": "The most a vouching grant may do for the person it vouches for: every inbound action is authorized as that person's grants intersected with this ceiling (ADR-141 D11). Required on a grant whose manifest request is vouch, whatever its decision, and refused on any other. It may be empty — tera plugin add writes it so — and plan refuses an approved vouching grant whose ceiling is empty.",
+                  "properties": {
+                    "actions": {
+                      "type": "array",
+                      "description": "The actions the ceiling admits, in the role grant vocabulary (ADR-010), e.g. invoke.",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "resources": {
+                      "type": "array",
+                      "description": "The resource patterns the ceiling admits, in the role grant vocabulary, e.g. api/v1/workorders/create.",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "accept_evidence": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "This installation's narrowing of the deployment's evidence policy for the transport class this vouching grant vouches for (ADR-141 D11): the classes an inbound submission of that class may rest on, from verified (a raw request tera verified itself) and asserted (the plugin's word). It NARROWS AND NEVER WIDENS — what a submission may rest on is always the deployment's auth { plugin_evidence { accept } } intersected with this list, and config plan refuses an installation it installs or changes whose list names a class the deployment's policy does not accept (plugin_evidence_widened). ABSENT NARROWS NOTHING, so the deployment's policy answers. Valid only on a grant whose manifest request is vouch. A member outside the vocabulary is refused at load, and so is an empty list, which would read as unset to one reader and as accept-nothing to another; decline the grant to accept nothing. It is a field on the decision rather than a second switch: the deployment's policy is the one switch.",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "verified",
+                      "asserted"
+                    ]
+                  }
+                },
+                "workers": {
+                  "type": "array",
+                  "description": "The workers a Work Order this grant files may be owned by, and so run as (ADR-141 D6). A plugin filing as itself names the owning worker on the create, and on each of its triggers' worker; a worker not listed here is refused at the create and at the trigger's mount. Each entry is one worker's name, written out: no wildcard, and nothing defaults it — not even on a deployment with one worker, because the only worker silently widens once a second is added. The plugin's manifest never supplies it. Required on a grant whose manifest request is as_itself, whatever its decision, and refused on any other. It may be empty — tera plugin add writes it so — and plan refuses an approved as_itself grant whose list is empty. The plan's review lists the deployment's workers with what each may invoke, beside the types requested, so the choice is informed. Filing as itself is for work with no person behind it — triggers, background jobs — on a worker the operator chose; work a person asks for goes through on_behalf_of, which runs as that person within the intersection of their grants and the plugin's (ADR-141 D5).",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "types": {
+                  "type": "array",
+                  "description": "The Work Order types an on_behalf_of grant that leaves its types to the installation may file for the person it acts for (ADR-162 D8): its manifest names work_order/create and writes no types, because the author of a UI over a whole deployment cannot know its types and the operator can. Each entry is one type's canonical key, <vault>/work-order-types/<name>, or a declared address, plugin.<name>/work-order-types/<name>, read as the manifest's own entries are; or the single entry #, which means every type the person may file, and which the plan's review highlights. A create is still decided on the person's own grants as well: the plugin never files a type the person may not. Required on such a grant, whatever its decision, and refused on every other grant — a manifest that names its types is their one home. It may be empty — tera plugin add writes it so — and plan refuses an approved grant whose list is empty. It is the operator's decision, not the manifest's request, so it is not in request_digest, and editing it re-opens nothing; the review shows an edit that widens it.",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "decision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "connection": {
+            "type": "array",
+            "description": "The decision on one connection the retained major's vault carries, as the top-level connection block (ADR-159 D7.3).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "stem": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The file stem of the connection in the plugin's vault that this block decides (the block label)."
+                },
+                "decision": {
+                  "type": "string",
+                  "enum": [
+                    "approved",
+                    "declined",
+                    "undecided"
+                  ],
+                  "description": "The operator's decision, as a grant's is (ADR-140 D4): approved, declined or undecided."
+                },
+                "request_digest": {
+                  "type": "string",
+                  "description": "What the decision was made about: the digest of the connection's resolved routes and hosts when the decision was made — each host route's name, address, header, value template and refuse list, each git route's name, address and username, the passthrough hosts, raw_delivery, and the hosts of its OAuth authorization server and account URL, never a description — written sha256: followed by 64 lower-case hex digits. Required when decision is approved or declined, and refused when it is undecided, because an undecided connection was decided about nothing. A connection that no longer has this digest re-opens the decision: it is undecided until someone decides again (ADR-159 D7.3)."
+                }
+              },
+              "required": [
+                "stem",
+                "decision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "sandbox": {
+            "type": "object",
+            "description": "The decision on the retained major's manifest's tool sandbox request, as the top-level sandbox block, against that manifest (ADR-140 D8 Amendment 2).",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approved",
+                  "declined",
+                  "undecided"
+                ],
+                "description": "The operator's decision, as a grant's is (ADR-140 D4): approved, declined or undecided. tera plugin add writes undecided, and --approve-sandbox approves the request as it stands."
+              },
+              "request_digest": {
+                "type": "string",
+                "description": "What the decision was made about: the digest of the manifest's sandbox { tools {} } when the decision was made, over its wall clock and CPU time in seconds, its memory in bytes and its platform grants sorted, written sha256: followed by 64 lower-case hex digits. A respelling of a value moves nothing; any change to a value or a token moves it, a narrowing included. Required when decision is approved or declined, and refused when it is undecided. A release whose request no longer has this digest re-opens the decision: it is undecided until someone decides again."
+              }
+            },
+            "required": [
+              "decision"
+            ],
+            "additionalProperties": false
+          },
+          "builds_on": {
+            "type": "array",
+            "description": "The installation one of the retained major's manifest's builds_on dependencies is bound to, as the top-level builds_on block, against that manifest.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "plugin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The plugin the manifest's builds_on block of the same label names (the block label)."
+                },
+                "installation": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The installation the dependency is bound to: an installation's name, lower-case letters, digits and -, starting with a letter or digit. At plan it must hold the plugin the label names and provide the major the manifest declares."
+                }
+              },
+              "required": [
+                "plugin",
+                "installation"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "major",
+          "manifest"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "hosted"
+      ]
+    },
+    {
+      "required": [
+        "attached"
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,795 @@
+{
+  "entries": [
+    {
+      "name": "recipe/work-order-type",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.workOrderTypeRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/work-order-type/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/skill",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.skillRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/skill/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/tool",
+      "regime": "persisted",
+      "current_version": "v2",
+      "supported_versions": [
+        "v1",
+        "v2"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.toolRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/tool/{version}",
+      "migration_chain": [
+        {
+          "from": "v1",
+          "to": "v2"
+        }
+      ]
+    },
+    {
+      "name": "recipe/trigger",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.triggerRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/trigger/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/role",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.roleRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/role/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/role-binding",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.roleBindingRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/role-binding/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/subject-kind",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.subjectKindRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/subject-kind/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/toolchain",
+      "regime": "persisted",
+      "current_version": "v3",
+      "supported_versions": [
+        "v1",
+        "v2",
+        "v3"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.toolchainRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/toolchain/{version}",
+      "migration_chain": [
+        {
+          "from": "v1",
+          "to": "v2"
+        },
+        {
+          "from": "v2",
+          "to": "v3"
+        }
+      ]
+    },
+    {
+      "name": "recipe/activity-partition",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.activityPartitionRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/activity-partition/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/correspondence-transport",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.correspondenceTransportRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/correspondence-transport/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/user",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.userRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/user/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/plugin",
+      "regime": "persisted",
+      "current_version": "v2",
+      "supported_versions": [
+        "v1",
+        "v2"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.pluginRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/plugin/{version}",
+      "migration_chain": [
+        {
+          "from": "v1",
+          "to": "v2"
+        }
+      ]
+    },
+    {
+      "name": "recipe/connection",
+      "regime": "persisted",
+      "current_version": "v2",
+      "supported_versions": [
+        "v1",
+        "v2"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.connectionRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/connection/{version}",
+      "migration_chain": [
+        {
+          "from": "v1",
+          "to": "v2"
+        }
+      ]
+    },
+    {
+      "name": "recipe/tracked-vault",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.trackedVaultRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/tracked-vault/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/tracked-checkout",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.trackedCheckoutRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/tracked-checkout/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "recipe/builds-on",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/schemas.buildsOnRecipe",
+      "serving_location": "GET /api/v1/schemas/recipe/builds-on/{version}",
+      "migration_chain": []
+    },
+    {
+      "name": "config/acl",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.ACLBlock",
+      "serving_location": "GET /api/v1/schemas/config/acl/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/admission",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.AdmissionBlock",
+      "serving_location": "GET /api/v1/schemas/config/admission/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/auth",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.AuthBlock",
+      "serving_location": "GET /api/v1/schemas/config/auth/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/capability-groups",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.CapabilityGroupBlock",
+      "serving_location": "GET /api/v1/schemas/config/capability-groups/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/connector-providers",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.ConnectorProviderBlock",
+      "serving_location": "GET /api/v1/schemas/config/connector-providers/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/connectors",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.ConnectorBlock",
+      "serving_location": "GET /api/v1/schemas/config/connectors/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/data-volumes",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.DataVolumeBlock",
+      "serving_location": "GET /api/v1/schemas/config/data-volumes/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/email",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.EmailBlock",
+      "serving_location": "GET /api/v1/schemas/config/email/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/environments",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.EnvironmentBlock",
+      "serving_location": "GET /api/v1/schemas/config/environments/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/feeds",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.FeedBlock",
+      "serving_location": "GET /api/v1/schemas/config/feeds/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/inline-skills",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.SkillBlock",
+      "serving_location": "GET /api/v1/schemas/config/inline-skills/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/listeners",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.ListenerBlock",
+      "serving_location": "GET /api/v1/schemas/config/listeners/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/members",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.MemberBlock",
+      "serving_location": "GET /api/v1/schemas/config/members/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/mcp-exposures",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.MCPExposureBlock",
+      "serving_location": "GET /api/v1/schemas/config/mcp-exposures/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/mcp-servers",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.MCPServerBlock",
+      "serving_location": "GET /api/v1/schemas/config/mcp-servers/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/mcp-upstreams",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.MCPUpstreamBlock",
+      "serving_location": "GET /api/v1/schemas/config/mcp-upstreams/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/message-storage",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.MessageStorageBlock",
+      "serving_location": "GET /api/v1/schemas/config/message-storage/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/mqtt-bridges",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.MQTTBridgeBlock",
+      "serving_location": "GET /api/v1/schemas/config/mqtt-bridges/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/observability",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.ObservabilityBlock",
+      "serving_location": "GET /api/v1/schemas/config/observability/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/otlp-egresses",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.OTLPEgressBlock",
+      "serving_location": "GET /api/v1/schemas/config/otlp-egresses/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/platform",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.PlatformBlock",
+      "serving_location": "GET /api/v1/schemas/config/platform/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/pools",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.PoolBlock",
+      "serving_location": "GET /api/v1/schemas/config/pools/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/queues",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.QueueBlock",
+      "serving_location": "GET /api/v1/schemas/config/queues/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/remote-desktop-endpoints",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.RemoteDesktopEndpointBlock",
+      "serving_location": "GET /api/v1/schemas/config/remote-desktop-endpoints/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/runner-link",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.RunnerLinkBlock",
+      "serving_location": "GET /api/v1/schemas/config/runner-link/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/runners",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.RunnerBlock",
+      "serving_location": "GET /api/v1/schemas/config/runners/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/session-corpus",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.SessionCorpusBlock",
+      "serving_location": "GET /api/v1/schemas/config/session-corpus/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/web-search-backends",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.WebSearchBackendBlock",
+      "serving_location": "GET /api/v1/schemas/config/web-search-backends/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/webhooks",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.WebhookBlock",
+      "serving_location": "GET /api/v1/schemas/config/webhooks/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/workers",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.WorkerBlock",
+      "serving_location": "GET /api/v1/schemas/config/workers/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "config/workflows",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config.WorkflowBlock",
+      "serving_location": "GET /api/v1/schemas/config/workflows/reference",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md (config-kind carve; runtime block is the source of truth)",
+      "migration_chain": []
+    },
+    {
+      "name": "event/tool_result",
+      "regime": "persisted",
+      "current_version": "v2",
+      "supported_versions": [
+        "v1",
+        "v2"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/workorder/taskeventlog.TaskEvent (Data payload; ADR-024)",
+      "migration_chain": [
+        {
+          "from": "v1",
+          "to": "v2"
+        }
+      ]
+    },
+    {
+      "name": "event/workorder",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/sdk/workorder.Envelope (work_order_events row; ADR-078 D2)",
+      "cross_reference": "docs/adr/ADR-078-system-event-topics-and-replay.md",
+      "migration_chain": []
+    },
+    {
+      "name": "event/cohort",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/workorder/events.CohortEnvelope (cohort_events row; ADR-102 D9)",
+      "cross_reference": "docs/adr/ADR-078-system-event-topics-and-replay.md",
+      "migration_chain": []
+    },
+    {
+      "name": "event/share",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/sdk/shares.Event (share_events row; ADR-174 D12)",
+      "cross_reference": "docs/adr/ADR-174-a-share-grants-one-resource-under-a-plugins-root.md",
+      "migration_chain": []
+    },
+    {
+      "name": "env/state",
+      "regime": "persisted",
+      "current_version": "v2",
+      "supported_versions": [
+        "v2"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/environment.EnvStateSchemaVersion (env.json snapshot)",
+      "cross_reference": "docs/adr/ADR-071-resource-ownership-principal-and-holder.md",
+      "migration_chain": []
+    },
+    {
+      "name": "manifest/deployment",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config/manifest.Manifest (ADR-066 deployment manifest, SchemaVersion)",
+      "cross_reference": "docs/adr/ADR-066-deployment-manifests-and-source-composition.md",
+      "migration_chain": []
+    },
+    {
+      "name": "lockfile/deployment",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config/manifest.Lock (ADR-066 lockfile, LockSchemaVersion)",
+      "cross_reference": "docs/adr/ADR-066-deployment-manifests-and-source-composition.md",
+      "migration_chain": []
+    },
+    {
+      "name": "variables/hcl",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/systemvault/loader.VariableDecl (ADR-064 §6 variables.hcl input-variable declaration)",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md",
+      "migration_chain": []
+    },
+    {
+      "name": "machine-output/plan",
+      "regime": "machine-output",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config/plan.Plan",
+      "serving_location": "GET /api/v1/schemas/machine-output/plan/{version}",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md",
+      "migration_chain": []
+    },
+    {
+      "name": "machine-output/apply",
+      "regime": "machine-output",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config (ADR-064 §8 apply summary; type lands with the plan-contract workstream)",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md",
+      "migration_chain": []
+    },
+    {
+      "name": "machine-output/validate",
+      "regime": "machine-output",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/config (ADR-064 §8 validate output; type lands with the plan-contract workstream)",
+      "cross_reference": "docs/adr/ADR-064-vault-native-iac.md",
+      "migration_chain": []
+    },
+    {
+      "name": "manifest/plugin",
+      "regime": "persisted",
+      "current_version": "v2",
+      "supported_versions": [
+        "v1",
+        "v2"
+      ],
+      "go_source": "github.com/kottera/sdk/plugin/manifest.Manifest",
+      "cross_reference": "sdk/plugin/manifest/schema/v2/plugin_manifest.json (the committed JSON Schema); docs/adr/ADR-143-compatibility-for-plugins.md D9 (the `manifest` contract)",
+      "migration_chain": [
+        {
+          "from": "v1",
+          "to": "v2"
+        }
+      ]
+    },
+    {
+      "name": "archive/work_order_train",
+      "regime": "persisted",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/workorder/history.Record (one archived train; ADR-145 D5)",
+      "cross_reference": "docs/adr/ADR-145-the-hot-window-and-the-work-order-archive.md",
+      "migration_chain": []
+    },
+    {
+      "name": "wire/kpp",
+      "regime": "wire",
+      "current_version": "2",
+      "supported_versions": [
+        "1",
+        "2"
+      ],
+      "go_source": "github.com/kottera/sdk/kpp.ProtocolVersion",
+      "cross_reference": "sdk/kpp/SPEC.md (governed by docs/compat-policy.md; N−2 integer-version negotiation)",
+      "migration_chain": []
+    },
+    {
+      "name": "wire/kpp/tool",
+      "regime": "wire",
+      "current_version": "2",
+      "supported_versions": [
+        "1",
+        "2"
+      ],
+      "go_source": "github.com/kottera/sdk/kpp/tooldialect",
+      "cross_reference": "sdk/kpp/SPEC.md (governed by docs/compat-policy.md; N−2 integer-version negotiation)",
+      "migration_chain": []
+    },
+    {
+      "name": "wire/kpp/env",
+      "regime": "wire",
+      "current_version": "2",
+      "supported_versions": [
+        "1",
+        "2"
+      ],
+      "go_source": "github.com/kottera/sdk/kpp/envdialect",
+      "cross_reference": "sdk/kpp/SPEC.md (governed by docs/compat-policy.md; N−2 integer-version negotiation)",
+      "migration_chain": []
+    },
+    {
+      "name": "wire/kpp/conn",
+      "regime": "wire",
+      "current_version": "2",
+      "supported_versions": [
+        "1",
+        "2"
+      ],
+      "go_source": "github.com/kottera/sdk/kpp/conndialect",
+      "cross_reference": "sdk/kpp/SPEC.md (governed by docs/compat-policy.md; N−2 integer-version negotiation)",
+      "migration_chain": []
+    },
+    {
+      "name": "api/management",
+      "regime": "api",
+      "current_version": "v1",
+      "supported_versions": [
+        "v1"
+      ],
+      "go_source": "github.com/kottera/kottera/pkg/mgmt/api",
+      "cross_reference": "docs/api/openapi.yaml (append-only within a major, ADR-035 / docs/compat-policy.md)",
+      "migration_chain": []
+    }
+  ]
+}

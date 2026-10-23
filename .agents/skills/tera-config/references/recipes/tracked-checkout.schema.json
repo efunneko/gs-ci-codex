@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/tracked-checkout/v1",
+  "title": "Tracked checkout declaration (v1)",
+  "description": "Schema for `.tera/tracked-checkouts/<name>.hcl` declarations per [ADR-150](../adr/ADR-150-a-knowledge-base-is-a-repository-and-a-plugin.md) D11. A **tracked checkout** is one ref of a repository that a host keeps as read-only trees, one immutable tree per commit, to be mounted into a sandbox: the system vault declares the repository, whose credential reads it, and which ref it follows. A mount holds one commit for its whole life; nothing rewrites a tree under a reader.\n\n**Only the system vault's declarations count.** A checkout carries a choice of read credential, so it is deployment configuration. In any other vault, `.tera/tracked-checkouts/` is the contribute ability `vaults/contribute/tracked-checkouts`, which no deployment profile admits by default — not `dev` or `embedded`, whose default admits an ordinary contribute ability, and not `server` — and which the `repository` role the binary contributes never names: its files are refused at mount, naming the ability and the binding that would grant it, and at `config plan` with `kind_not_allowed`, unless a system-vault `role_binding` grants that ability to the vault's principal explicitly. Any system-vault grant that matches the ability counts as explicit, wildcards included: a role granting `vaults/contribute/#`, `vaults/contribute/+`, `vaults/#` or `#`, bound to `vault:<alias>` or `vault:*`, admits `tracked-checkouts`, a credential-bearing ability, under every profile — so a \"contribute everything\" role bound to a vault's principal grants it too. Admission is not loading: even granted, a checkout another vault carries is not part of the declared set.\n\n**Three ref modes, exactly one per declaration**, spelled exactly as a `tracked_vault`'s: `branch \"<name>\" {}` follows a branch's head; `tags \"<pattern>\" {}` follows the highest matching tag by semver, optionally only tags whose GitHub release is published (`release {}`) and with prereleases in or out; `pin \"<ref>\" {}` holds exactly one tag or commit, which is how a freeze or a rollback is done.\n\n**The credential is named, never written.** `worker` and `connection` name the worker whose credential for that connection reads the repository (ADR-148 D3). The worker must exist and bind the connection, and the connection must be declared in the system vault; each is refused at load and at plan otherwise. The daemon resolves the credential itself, and it never enters a sandbox, a refusal or a plan.\n\n**Synced when mounted.** Taking a mount first brings the checkout to the commit its ref resolves to on the remote at that moment, then holds that commit's tree for the mount's life. So there is **no `poll_interval`**: a checkout is brought current whenever it is mounted and has nothing to poll for. There is **no size limit**: the trees are bounded by the host's sizing of the store that holds them, never per declaration. There is **no `path`**: a checkout is the whole repository. Each of the three is refused as an attribute the kind does not have.\n\nThe file stem is the checkout's name, so `handbook.hcl` declares the checkout `handbook`; the name is the segment of the resource `tracked-checkouts/<name>` that mounting it is authorized as `invoke` on. The recipe declares a single `tracked_checkout` block whose label is optional and, if written, must equal that stem.",
+  "type": "object",
+  "required": [
+    "version",
+    "name",
+    "repository",
+    "worker",
+    "connection"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1",
+      "description": "Per-recipe grammar version. Required; this schema applies when version is v1."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The checkout's name (the HCL block label). Optional: the filename stem is the identity, so a label, if written, must equal it. It is the segment of the resource tracked-checkouts/<name> a role grants invoke on to mount it, and what each host keys the checkout's trees under, so it carries no / or \\, no ACL wildcard (*, + or #), no whitespace, and does not begin with a dot."
+    },
+    "description": {
+      "type": "string",
+      "description": "One line for people."
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The repository, as an absolute https:// URL with a host and a path (https://github.com/acme/handbook.git), spelled exactly as a tracked_vault spells it. It carries no user or password: the read credential is the worker's connection, presented over HTTPS, so http://, ssh://, git@ and file:// URLs are refused. With release {} it must be a repository the GitHub API can address, whose path is /<owner>/<repo> with an optional .git suffix."
+    },
+    "worker": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The worker whose credential reads the repository, and makes the release lookup. A checkout has no filer, so the worker is named outright. It must be declared, and must bind a credential for connection with a connection block of its own (ADR-148 D3); a declaration naming a worker that does not is refused at load and at plan. The credential's value is never written here, and never reaches a sandbox, a refusal or a plan."
+    },
+    "connection": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which of the worker's credentials reads the repository: the name of a .tera/connections/<name>.hcl recipe the system vault declares, refused at load and at plan when it is not."
+    },
+    "branch": {
+      "type": "object",
+      "description": "Follow a branch: its head is live, and every move is applied through plan and apply. Labelled with the branch name, without refs/heads/. Exactly one of branch, tags and pin.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The branch's name, without refs/heads/ (the HCL block label)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "tags": {
+      "type": "object",
+      "description": "Follow tags matching a pattern: the highest matching tag by semver that passes the filters is live. Exactly one of branch, tags and pin.",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The tag pattern (the HCL block label): a literal prefix and one trailing *, with no other *, ?, [ or backslash. A tag matches when it begins with the prefix, and its version is what follows; when the prefix ends in v, that v is given back to the version, so config-v* and config-* both read config-v1.2.3 as v1.2.3. The version must be a full semver: a matching tag that is not is reported and skipped, never guessed at."
+        },
+        "prereleases": {
+          "type": "boolean",
+          "description": "Whether a prerelease is a candidate: a tag whose version has a semver prerelease part, or, with release {}, whose GitHub release is marked prerelease. Default false."
+        },
+        "release": {
+          "type": "object",
+          "description": "Require a GitHub release for the tag that is published and is not a draft. Absent, a tag needs no release. A release lookup is made only for a new matching tag above what is live, and a tag whose release is absent or a draft is looked up again at most once per interval, so publishing the release later applies the tag.",
+          "properties": {
+            "api_url": {
+              "type": "string",
+              "description": "The GitHub REST API root the release lookup calls, as an absolute https:// URL. Set it for GitHub Enterprise Server."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "pin": {
+      "type": "object",
+      "description": "Pin a ref: exactly that tag or commit is live. Rollback and freezing are pins, set here and removed once a fixed tag exists. Exactly one of branch, tags and pin.",
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The pinned ref (the HCL block label): a full commit id - exactly 40 or 64 lowercase hex characters - or else a tag name. An abbreviated commit id is a tag name that will not resolve. A branch cannot be pinned."
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "branch"
+      ]
+    },
+    {
+      "required": [
+        "tags"
+      ]
+    },
+    {
+      "required": [
+        "pin"
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

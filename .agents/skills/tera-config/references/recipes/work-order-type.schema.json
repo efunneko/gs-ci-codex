@@ -1,0 +1,1409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/work-order-type/v1",
+  "title": "Work-order-type recipe (v1)",
+  "description": "Schema for `.tera/work-order-types/<name>.hcl` recipes per PRD-012 §4.3 / ADR-045 §Part 5. Mirrors `pkg/workorder/registry.TypeBlock` plus the file-level `version` dispatch attribute.",
+  "type": "object",
+  "required": [
+    "version",
+    "name"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1",
+      "description": "Per-recipe grammar version. Required."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bare WO type name (the HCL block label). The loader namespaces it as <vault-id>/work-order-types/<name>."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description surfaced in operator UIs."
+    },
+    "based_on": {
+      "type": "string",
+      "description": "The work-order type this recipe derives from, by its qualified name <vault>/work-order-types/<name> (ADR-147 D8). The resolved type is the base with this recipe's top-level attributes and blocks substituted in whole: replace, never merge, so a list is not appended, a block is not merged field by field, and declaring any block of a repeatable type (one claim, say) replaces every block of that type in the base. What this recipe omits is the base's, so the recipe slot may be omitted, or declared once to replace the base's with the same variant ending the same way (equal result_call and interactive). The base's contract is locked: a recipe declaring based_on may not declare input_schema, output_schema, output_guard, postconditions, decomposition, checkpoints, in_dispatch, subject, about_input, hitl_delegate_subject_input or tags, nor any connection block: whose credential the work uses for each connection is the base's, inherited exactly (ADR-148 D3). One level: a type declaring based_on cannot itself be a base. The base must be one this recipe's vault may read, and the merged type is validated as a standalone type, where every vault's contribution is composed, so an edit to the base reaches this type with no edit here."
+    },
+    "previous_names": {
+      "type": "array",
+      "description": "The qualified names this type was formerly registered under, each <vault>/work-order-types/<name> as based_on takes it, for a type moved between vaults or renamed (ADR-145 D7 Amendment 1). A Work Order stores the canonical name it was filed under, so the trains filed before a move keep the old name, which no longer names a registered type. Listing that name claims those trains: this type's own history block, its window and its archive, governs them, and a list of this type by its leaf or its name finds them too. Once the old name is gone, the claim also answers for the Work Orders still pinned to it: their in_dispatch verbs and claim {} requirements are read from this type (ADR-105 D2's 2026-10-15 amendment), so naming the old type here is how a replacement takes over its running work without stranding it. A Work Order filed under the old name after it is gone, at any door, is filed as this type, and its log records the follow as a type.followed event (ADR-145 D7 Amendment 2), so a train whose pinned instructions write the old name keeps filing children. A claimed name carries no policy of its own. A claim is held inert, and its trains kept whole as an unclaimed name's are, while the name is still a registered type, which governs its own trains, or while more than one type claims it; the history sweep reports an inert claim. KEEP THE ENTRY until no train stored under the old name remains in the hot store: removing it earlier returns those trains to being kept whole, and a train that ran a dispatch can be held by the step-binding gate for about 30 days whatever its window. A type declaring based_on never inherits its base's list.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "description": "Labels every Work Order committed under this type carries, IN ADDITION to whatever its caller supplied (ADR-111 D1). The declaration goes on the TYPE because the type is the only place that knows what is true of EVERY instance: a caller knows about one Work Order and a worker knows about a queue, while the type is the unit over which \"all of these are about a repository\" is a well-formed claim. It is the opposite of description beside it, which describes the TYPE to an operator reading a catalog and does not reach an instance. A value is either a literal (lifecycle:implementation) or a reference to the Work Order's own inputs written as a ${inputs.X} template (repo:${inputs.repo_name}) — THE SAME SPELLING, SEMANTICS AND IMPLEMENTATION defaults.concurrency_key has used since before this attribute existed, reused rather than re-invented because a third substitution syntax beside ${inputs.X} and input_map's CEL is the failure those two are already documented as warning about. DELIBERATELY ANEMIC: field reference only, no function calls, no arithmetic, no conditionals, no nesting, and the answer to \"I need the repo name lowercased\" is a different input rather than a richer template, because an expression surface published on a recipe kind is append-only forever. A template is carried through the load UNEVALUATED — the inputs it reads do not exist while a config file is being read — and is materialised once, at the transition that COMMITS a Work Order to existing as work (ADR-111 D3): work_order.create for a Work Order filed directly, and work_order.release for a draft, never at draft-create, because a draft's inputs are editable right up to that moment. The derived tags are stored FIRST, in declaration order, then the caller's in the order supplied, with any string already present dropped (D7) — an order clients may rely on. A reference that does not resolve against the Work Order's inputs REFUSES the commit rather than emitting repo: or omitting the tag (D5), and a resolved value over 128 bytes refuses it too (D6). Once committed the tags cannot be removed, because work_order.edit is draft-only and derivation happens after the last edit (D8). tera does not interpret a tag's structure — it does not split on :, model a namespace, or detect a caller-supplied tag colliding with a derived one (ADR-111 D10). An element that is not a string literal or a ${...} template — a number, a function call, a %{...} directive, a nested list — is a load error naming its index, because a tag tera silently dropped reads exactly like one it kept; a value that is not a list at all, an explicit null for the whole attribute included, is refused naming the attribute rather than an index, because there is no element to point at. A TEMPLATE ROOTED AT ANYTHING BUT inputs — ${var.X}, ${env.X}, ${outputs.X} — is a load error naming the tag's index and the root that was written: inputs is the only name bound when a tag is materialized, so any other root refuses every work_order.create under the type rather than some of them, and tera config plan says so before anything runs. A var. reference the vault CAN resolve never reaches that rule, because variables are substituted into literals before a recipe is decoded; what it catches is the one nothing else does — a root that is legal in every other recipe attribute and meaningless in this one. A TEMPLATE REFERENCING AN INPUT THE TYPE'S OWN input_schema POSITIVELY DECLARES AS AN OBJECT OR AN ARRAY is a load error too, naming the input and its declared type (ADR-111 D6): a tag is a string, the type already carries the schema that says this input is not one, so tera config plan refuses it before anything runs rather than letting every commit of the type fail at evaluation. That check refuses only what is CERTAINLY wrong — a union ([\"string\", \"null\"]), a property with no type keyword at all, a type keyword tera does not recognise, and a type declaring no input_schema at all are each left alone rather than guessed at, and a deeper traversal (${inputs.report.title}) interpolates the field rather than the object so the object's declared type says nothing about it. A template referencing an input the schema does NOT list as required is a WARNING and not a refusal: it silently makes that input effectively required, because an unresolvable reference refuses the commit (D5) and a tag template has no try() to coalesce it away — which is a legitimate thing for a type author to want, so the plan says so and lets it through. A repeated tag and an empty one are NOT refused here: deduplication is a property of the union at commit, and a length bound is declared elsewhere, so refusing either here would be a second rule that agrees with the first until the day it did not. Default: empty, and tags = [] is legal and says the same thing as omitting the attribute.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "activity_partition": {
+      "type": "string",
+      "description": "The ADR-113 activity partition every dispatch of this type resolves to: the scope deciding who may WATCH a run of this type live, and who may read what it did. It is the HIGHEST rank in ADR-113 D3's precedence — work-order type, then listener, then worker — and the reason is that the type is what the work IS rather than who happens to run it, plus ADR-105 D1's pin: a Work Order is pinned to its type's configuration for life, so a partition inherited from the type is as immutable as the pin and a run cannot change which team may read it by being re-dispatched under a different worker. Overriding is SILENT — with a total order over distinct kinds there is no disagreement to refuse, only a rank to apply — which is why the value a dispatch actually resolved to is recorded on the dispatch and projected back rather than left to be inferred; an operator who set a partition on the worker and had it beaten by the type would otherwise debug an ACCESS FAILURE against a value that never applied, because the grant they wrote names the partition they thought they had. UNSET IS AN ABSENCE AND NOT A DEFAULT: a type that declares none leaves the decision to a lower rank, and a dispatch nothing declares one for anywhere emits nothing, publishes nothing and stores nothing (ADR-113 D2). There is deliberately no fallback partition and no permissive default (ADR-075 D11) — routing undeclared invocations to an operator-only partition so nothing is lost is a permissive default wearing a conservative hat, and it is refused by ruling rather than by omission. The value names a partition an activity_partition recipe declares; that recipe is where the value's shape is refused offline (no /, no topic wildcard, no {principal} anywhere in it, and no leading _, which the topic grammar reserves for its own sentinels), and nothing here re-decides it. A value naming a partition no recipe declares is not refused here either: it resolves, and nothing is granted on it, which is the same end state as declaring nothing."
+    },
+    "input_schema": {
+      "type": "string",
+      "description": "Raw JSON Schema for inputs (heredoc body in HCL)."
+    },
+    "output_schema": {
+      "type": "string",
+      "description": "Raw JSON Schema for outputs — the single authority on what done looks like for work of this type, which work_order.complete validates the result against. Compiled at load, so a malformed one fails while you are reading the file that holds it. IT MUST BE SELF-CONTAINED: an internal reference (#/$defs/...) is fine, and any $ref the compiler would have to fetch or read off the daemon's disk is refused, because the recipe is the declaration and a definition of done whose meaning lives in a second file is one no vault carries, no config plan diffs and no reviewer sees."
+    },
+    "agent": {
+      "type": "object",
+      "description": "REFUSED at load by name (ADR-136 D5 row 3; D11 removed the agent recipe kind): the daemon runs no model, so a type naming an agent recipe does not register — the vault loader degrades that type alone, and bootstrap HCL fails to load. Nothing inside the block is parsed. The member stays in this schema because the recipes contract's published level carries it (ADR-143 D3); the refusal, not a decode error, is what an author meets. The replacement is a capability or select work-order type dispatching at a harness, or a workflow whose only judgment is a capability step; the migration pointer is the section 'Migrating off the agent shape' in examples/code-lifecycle-types/README.md.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "REFUSED at load by name (ADR-136 D5 row 3, D11): the agent recipe the refused type names (the HCL block label)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "workflow": {
+      "type": "object",
+      "description": "Dispatch this type to an authored workflow. The block label names the workflow. Exactly one of the workflow, capability, external or select blocks must be declared (ADR-087 D4), or at most one when based_on is declared.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Authored workflow this type dispatches to (the HCL block label)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "description": "Dispatch this type straight at a capability, without an authored workflow — sugar the wiring layer lowers into a one-step workflow (ADR-081 D6). The block label names the capability. Exactly one of the workflow, capability, external or select blocks must be declared (ADR-087 D4), or at most one when based_on is declared.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Capability this type invokes (the HCL block label)."
+        },
+        "operation": {
+          "type": "string",
+          "description": "Capability operation name. Required on this recipe — a capability recipe with no operation is refused at load."
+        },
+        "input_map": {
+          "type": "object",
+          "description": "How this dispatch's invocation params are built out of the Work Order's inputs, each value a CEL expression evaluated at dispatch. Omit it and the Work Order's inputs object is handed to the capability VERBATIM, key for key, which is what every capability recipe did before this attribute existed — so a type whose inputs are already shaped like the capability's params needs none. It exists because ADR-081 D6 calls this block sugar the wiring layer lowers into a one-step workflow, and without it the sugar was strictly less capable than its own desugaring: an authored one-step workflow can map its inputs onto a capability's params and the shorthand for exactly that could not. The lowering copies it onto the synthesized producer step, so the step and the type share one implementation and one meaning. The vocabulary is the workflow step's: input.<name> reads the Work Order's inputs, and a composite input is available as one — input.phases is a list of objects, so input.phases.map(p, p.name).join(\", \") is an ordinary expression here. TWO SUBSTITUTION SYNTAXES LIVE IN THIS BLOCK AND THEY ARE NOT INTERCHANGEABLE: config interpolates ${inputs.X} against the Work Order's spec inputs, this maps input.X in CEL, a ${...} written here fails to decode, and declaring an input_map does NOT rewrite what config's ${inputs.X} substitutes against — the two are independent channels three lines apart. format() is not a serializer: \"%s\".format([input.phases]) emits cel-go's debug rendering of a composite, which looks like JSON and is not, and there is no JSON encoder in this environment — a recipe that wants a particular string composes it. An expression that cannot resolve fails the dispatch rather than substituting empty, which is the same posture config's ${inputs.X} takes. The steps namespace is refused at load: a capability recipe lowers to a workflow whose producer is the FIRST step, so no step has run when this is evaluated, and a mapping that genuinely needs another step's output wants an authored workflow recipe instead. On a recipe that declares attended {} it also reads parent, the Work Order the session was opened for, evaluated at the first dispatch (ADR-179 D5): null when it was opened for none, and otherwise parent.id, parent.type, parent.instructions (an off-tera item's instructions as rendered at its commit, and any other Work Order's body) and parent.off_tera. Everywhere else parent is refused at load. Default: unset, and the dispatch is byte-identical to one authored before this attribute existed.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "config_map": {
+          "type": "object",
+          "description": "Typed CEL expressions contributing binding configuration. Expressions see original input and completed steps only; null omits a key, and keys must be disjoint from config (ADR-131 D8).",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "result_call": {
+          "type": "boolean",
+          "description": "Whether a dispatch of this type ENDS BY CALLING the submit verb on the reserved in-dispatch surface, with the whole ending record as typed arguments, instead of leaving a file behind for the daemon to read after the producer is gone (ADR-099 Amendment 4). The verb's input schema IS this type's output_schema, so the contract arrives as machine-read schema rather than as prose a recipe author transcribed, and a record that does not satisfy it is REFUSED BACK TO THE PRODUCER WHILE IT IS STILL ALIVE — an ordinary tool error naming the pointer, the constraint and the schema path, which it corrects and calls again. That is the whole reason to prefer it: the file mechanism evaluates the schema at work_order.complete, after the step has settled, so the refusal is computed at the one moment there is nobody left to hand it to. BECAUSE IT IS A TOOL'S INPUT SCHEMA, output_schema UNDER result_call MUST DECLARE type object AT ITS ROOT AND NO ROOT allOf, anyOf OR oneOf, and a type that breaks this is REFUSED AT LOAD — at tera config validate, at config apply and at the daemon's own load — naming the file, the line and the keyword: MCP requires an object input schema and model tool-calling APIs refuse a root combinator, so a client would drop the verb and every run would finish with no way to report; hoist a lone if/then to the root, and use dependentSchemas or a combinator nested under properties for the rest. It is the ONLY ending a type declares, and declaring it is optional: a type that omits it ends however its capability ends, which is what most of a deployment's types do. DECLARING IT BESIDE interactive IS REFUSED AT THE SAME THREE SURFACES, and for a different reason: ADR-129 D2's turn boundary IS the result file — an adapter yields a turn by leaving the pre-work marker in place and replacing it with a contentless suspending declaration — and a type that ends with the call writes no such document, so an interactive dispatch of one would end the conversation at its first turn or park at an inbox nothing recorded. The refusal names both declarations and both lines and spells both repairs, because either can be the one you meant to delete. The adapters refuse the same pair at dispatch with their own ending_unsupported code, and that refusal stays: a load surface cannot see a binding that acquires interactive from somewhere the recipe does not state. IT IS A SIBLING OF operation AND NOT A KEY INSIDE config, and the distinction is the substance rather than the filing: config is the handler-facing class, forwarded verbatim into the sandbox and described by the tool's config_schema, while an ending is daemon-read and runtime-facing, so the dispatched program neither has to understand it nor gets to disagree with it. It is per binding rather than per tool, because the same adapter is dispatched by types that end differently and a declaration on the tool would move an ending for producers that never agreed to it. THE DECLARATION IS PINNED, so a run ends by the mechanism it was pinned to at its first dispatch for its entire life (ADR-105 D1): migrating a type while one of its runs is in flight changes what runs NEXT and never moves the ending out from under work already dispatched. READ THIS BEFORE OPTING A TYPE IN: RETIRING THE FILE RETIRES THE CORPSE. ADR-091 dispatch salvage reads a result file left in the workspace by a session that died before reporting, and a dispatch offered the submit verb writes none. What remains is the session corpus in the dispatch's activity partition, which holds the attempted call — AND A PARTITION THAT DECLARES NO retention BLOCK KEEPS NOTHING ON DISK, so a deployment that opts a type into the call while running an unretained partition has no evidence path at all. See docs/ops/workorder-salvage.md and docs/ops/activity-and-the-session-corpus.md. Default: false, and the dispatch is byte-identical to one built before this attribute existed."
+        },
+        "config": {
+          "type": "object",
+          "description": "Binding config this recipe hands its tool as the invocation's binding_config — the same channel a workflow capability step's config uses, so the tool handler cannot tell which authoring surface configured it (ADR-082 D1). This is what lets a type invoke a tool with a required config_schema with nothing else in the loop to supply it. It sits inside the capability block because on the other recipes the config is either authorable somewhere that names the tool it configures — a workflow's capability step — or meaningless, as it is on an external recipe that dispatches nothing. String values may reference ${inputs.X} and are substituted against the Work Order's spec inputs at dispatch; a reference that cannot resolve is an error, not an empty string. A value that wants a LITERAL ${...} writes HCL's own escape, $${...}, and the escape survives the substitution — it reaches the tool as ${...} rather than being read back as the template the author escaped it not to be. VALIDATED AT LOAD AGAINST THE NAMED TOOL'S config_schema when that tool is declared in this configuration: the tool's config_defaults are composed beneath this block, as the dispatch composes them, and a recipe that cannot satisfy the schema — a required field missing, a key the schema does not admit — is refused at tera validate, tera config validate, config apply and the daemon's own load (where a vault recipe is degraded), naming the tool and the field, rather than loading usable and failing every dispatch. A ${inputs.X} value and a config_map key count as present and their values are not judged, because both are known only per dispatch. A capability no tool recipe in this configuration declares — a runtime-registered tool, a connector, an MCP projection — is not judged, and the dispatch-time validation stays its only check.",
+          "additionalProperties": true
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "Whether a dispatch of this type is a CONVERSATION rather than a single run (ADR-129 D9). An interactive dispatch ends each turn by SUSPENDING RATHER THAN COMPLETING: the adapter writes a contentless suspending declaration, the run parks at paused:awaiting-interactive-turn carrying neither a question nor a predicate, and it sits at an inbox until somebody sends it a message, one of its own children settles, or the pause's deadline arrives — and everything that arrived while it was parked drains into the NEXT dispatch, in arrival order. IT IS A SIBLING OF operation AND NOT A KEY INSIDE config, and the distinction is the substance rather than the filing: config is the handler-facing class, forwarded verbatim into the sandbox and described by the tool's config_schema, while this is DAEMON-READ and runtime-facing in the sense a tool's mcp_servers block already is — resolved outside the sandbox, so the dispatched program neither has to understand it nor gets to disagree with it. THE BINDING MUST OFFER WHAT THIS REQUESTS: the tool's in_flight { yields_turn = true } is the offer, and a type declaring this against a binding that does not offer it is REFUSED AT LOAD — at tera config validate, at config apply and at the daemon's own load — naming both files and both lines. The refusal is the point rather than a strictness: a dispatch that quietly ran one-shot instead would be discovered by a person whose chat ended after one message. IT CANNOT BE DECLARED BESIDE result_call, and the pair is REFUSED AT LOAD at the same three surfaces, naming both declarations and both lines: a turn boundary IS a result file, and a type that ends by calling the submit verb writes none, so every dispatch of such a type would end the conversation at its first turn or park at an inbox nothing recorded. IT IS ALSO AN INPUT TO PAUSE DERIVATION, so awaiting-interactive-turn is derived for a type that asked for it and for no other, which is what keeps ADR-086's a type reaches the pauses it can honour, and nothing else true rather than handing every capability type a state it will never enter. Default: false, and the dispatch is byte-identical to one built before this attribute existed."
+        },
+        "attended": {
+          "type": "object",
+          "description": "Whether a dispatch of this type is ATTENDED: one process in a terminal its person attaches to, rather than a run nobody watches or a turn at an inbox (ADR-179 D2). IT IS A SIBLING OF operation AND NOT A KEY INSIDE config, for interactive's reason: it is daemon-read and runtime-facing. AT MOST ONE OF interactive AND attended: they are two answers to one question, what drives this dispatch — an inbox of messages, or a person at a terminal — and a recipe declaring both is refused at load. THE BINDING MUST OFFER WHAT THIS REQUESTS: the tool's attendable = true is the offer, and a type declaring this against a tool that does not offer it is REFUSED AT LOAD — at tera config validate, at config apply and at the daemon's own load — naming both files. AN ATTENDED SITE ENDS BY THE SESSION'S OWN SUBMIT CALL, so result_call = true beside it is refused as a second spelling of the same fact; an output_schema is admitted, and is that verb's input schema. The request and the offer are frozen into the configuration pin. Default: absent, and the dispatch is byte-identical to one built before this block existed.",
+          "properties": {
+            "unsandboxed": {
+              "type": "boolean",
+              "description": "Whether the attended session runs as the host's user, outside the dispatch sandbox (ADR-179 D8). Default: false, the sandboxed session. TRUE LOADS ONLY UNDER THE KERNEL SWITCH attended_allow_unsandboxed (ADR-179 D14 item 1), a top-level bool in the bootstrap HCL that is false under every deployment_profile: while it is off, a type declaring unsandboxed = true is refused naming the switch, in one sentence, at the daemon's load, at reload, at tera config validate and at tera config plan, and a plugin carrying such a type is refused at plan. The switch is kernel-only and restart-only, so no vault edit turns it on; tera config validate reads no kernel and judges with it off. A Work Order pinned while the switch was on and dispatched or resumed after a restart with it off is held, not dispatched. Carried through the grammar, the lowering and the configuration pin."
+            },
+            "host": {
+              "type": "string",
+              "description": "The runner the attended session is placed on (ADR-179 D2, D7). It may reference ${inputs.X}; it is kept as written at load and rendered once, when a Work Order of this type is committed. An optional input that is absent leaves the field absent, and the session is then placed by the worker's pools like any dispatch. A reference to an input this type's input_schema does not declare is refused at load, as is a reference rooted at anything but inputs."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "not": {
+        "allOf": [
+          {
+            "required": [
+              "interactive"
+            ],
+            "properties": {
+              "interactive": {
+                "const": true
+              }
+            }
+          },
+          {
+            "required": [
+              "attended"
+            ]
+          }
+        ]
+      },
+      "additionalProperties": false
+    },
+    "external": {
+      "type": "object",
+      "description": "Declare that nothing in tera executes this type: something outside tera runs the work and the Work Order is tera's durable record of it (ADR-090 D2, ADR-139 D1). Which executor is exactly one nested block — mcp_upstream {} for a task on a registered MCP upstream, or off_tera { requirements, instructions } for work a taker outside tera picks up. Such a Work Order never enters the deps to deferred to capacity to dispatch gate chain, consumes no LLM-account seat and no worker concurrency slot, and is moved only by what tracks its executor. It takes no label because what identifies the executing party — which upstream and which foreign task id, or who took the work — is per Work Order and lives on the Work Order, not on the type. Blocks that describe a dispatch are refused on this recipe rather than silently doing nothing: volumes and environments are provisioned at a dispatch that never happens, postcondition check blocks lower into a synthesized workflow that is never synthesized, and an in_dispatch verb is offered to a run that never exists (its empty form stays legal, like postconditions none). Exactly one of the agent, workflow, capability or external blocks must be declared (ADR-087 D4), or at most one when based_on is declared.",
+      "properties": {
+        "mcp_upstream": {
+          "type": "object",
+          "description": "The work runs as a task on a registered MCP upstream serving the tasks extension, and that upstream's own feed moves the Work Order (ADR-090 D8). It takes no label and no fields: which upstream and which foreign task are per-Work-Order facts carried on the Work Order, so every wrapper in a deployment is an instance of one type. Exactly one executor block must be declared (ADR-087 D4).",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "off_tera": {
+          "type": "object",
+          "description": "The work is picked up off tera's board by a taker outside tera, which reports on it (ADR-139). It takes no label, because what takes it is per Work Order rather than a resource this configuration declares. Exactly one executor block must be declared (ADR-087 D4).",
+          "properties": {
+            "requirements": {
+              "type": "string",
+              "description": "What a taker must have to take this work — access, tooling, a checkout. It may reference ${inputs.X}; the text is kept as written at load and rendered once, when a Work Order of this type is committed — a live create or create_child, a composite-plan child, or the release of a draft — onto the Work Order's spec, the way tags are (ADR-111 D2/D3). A reference rooted anywhere but inputs, or to an input the input_schema declares as an object or an array, is refused at load and at config plan; one to an input the schema leaves optional warns, because a reference the Work Order's inputs cannot resolve refuses the commit rather than rendering empty. Optional. The type's description says what the work is; this says who can do it."
+            },
+            "instructions": {
+              "type": "string",
+              "description": "What a taker is asked to do. It may reference ${inputs.X}, under the same rules as requirements: kept as written at load, rendered once onto the Work Order's spec when it is committed, refused at load for a reference tags would be refused for, and refusing the commit when the inputs cannot resolve it. Optional."
+            },
+            "lends_subject_to": {
+              "type": "array",
+              "description": "The child types, by bare name in this type's own vault, that a Work Order of this type lends its delegation subject to (ADR-135 D4 Amendment 1). A child beneath off-tera work otherwise takes its filer's own subject, so a plugin holding work for a person as itself files children that act on nobody's behalf, and a child type binding a connection with filer {} is refused no_delegation_subject. A child of a type named here inherits the person instead, and records the parent as lent_by, when all of these hold: it is filed by the parent's current taker acting as itself; that taker is the plugin the person filed or released the parent through; and the parent has not ended — a child filed after it ends is refused. It is not impersonation: the person consented by filing or releasing the work through that plugin, and the loan reaches only the types named here. The list is copied onto the Work Order when it is committed, so a later edit of this type lends nothing more to work already filed. A name with a /, an empty or padded name and a repeat are refused at load. Optional; absent lends nothing. tera config plan and the plugin's install review show each loan.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "mcp_upstream"
+          ]
+        },
+        {
+          "required": [
+            "off_tera"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "select": {
+      "type": "object",
+      "description": "Dispatch this type to one of a closed set of interchangeable candidates, chosen at admission from the Work Order's own input rather than at authoring (ADR-130 D7). Conditions precede all acquisition, and a candidate is selected only after its complete governed resource set has been acquired. It takes no label because it names more than one capability: the references are the candidate blocks' own capability labels. Exactly one of the agent, workflow, capability, external or select blocks must be declared (ADR-087 D4), or at most one when based_on is declared.",
+      "properties": {
+        "input_schema": {
+          "type": "string",
+          "description": "Raw JSON Schema for the SHARED input contract every candidate presents (heredoc body in HCL). It is not this type's own input_schema, which may additionally carry selection parameters such as an engine field the request reads. A site must declare at least one of input_schema and output_schema: the shared contract is what makes a candidate set interchangeable, and a site declaring neither asserts nothing its candidates must agree on."
+        },
+        "output_schema": {
+          "type": "string",
+          "description": "Raw JSON Schema the selected candidate's mapped result is validated against before anything downstream reads it (heredoc body in HCL). The candidate's own native output is validated against its native schema first, then translated by that candidate's output_map, then checked here."
+        },
+        "request": {
+          "type": "string",
+          "description": "CEL expression returning the candidate label this Work Order asks for, or null to leave the choice to the policy. It sees the Work Order's original input and, in the workflow spelling, the outputs of steps that have already completed. An explicit request never falls back: an unknown label, a value of the wrong type, an empty string or an evaluation error each refuse the admission rather than selecting something else, and a request naming a candidate whose capacity is exhausted waits for that candidate. Omit it to let the policy decide every time."
+        },
+        "input_map": {
+          "type": "object",
+          "description": "How the shared input is built out of the Work Order's inputs, each value a CEL expression evaluated once per admission and validated against input_schema before any candidate is visited. This is the direct form's equivalent of a workflow step's own input_map block, which the workflow spelling uses instead. An absent map and an authored empty one are different contracts and are digested differently.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "policy": {
+          "type": "object",
+          "description": "What decides when request is absent or returns null. A site always declares one, because an explicit request may be null and the policy is what answers then.",
+          "properties": {
+            "fixed": {
+              "type": "object",
+              "description": "Name one candidate as the default. An open choice then behaves exactly as an explicit request for that candidate: it waits for that candidate's capacity and does not downgrade to another. Exactly one of the fixed or first_available blocks must be declared (ADR-087 D4).",
+              "properties": {
+                "candidate": {
+                  "type": "string",
+                  "description": "The declared label this site defaults to. Required on this variant — declared optional here so an empty one is refused by name rather than as a raw missing-argument diagnostic — and it must name a declared candidate."
+                }
+              },
+              "additionalProperties": false
+            },
+            "first_available": {
+              "type": "object",
+              "description": "Ordered automatic selection: the first candidate in the declared order that is eligible AND whose complete governed resource set can be acquired. Exactly one of the fixed or first_available blocks must be declared (ADR-087 D4).",
+              "properties": {
+                "order": {
+                  "type": "array",
+                  "description": "The preference sequence. It must enumerate EACH declared candidate EXACTLY ONCE: an omission and a duplicate both refuse, so adding a candidate without adding it here leaves the policy incomplete rather than silently ranking the new one last.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "fixed"
+              ]
+            },
+            {
+              "required": [
+                "first_available"
+              ]
+            }
+          ],
+          "additionalProperties": false
+        },
+        "config": {
+          "type": "object",
+          "description": "Binding configuration every candidate receives, whichever is selected. It composes with a candidate's own config only on DISJOINT keys: a key declared at both layers refuses rather than silently replacing the shared instruction. Only a tool's own config_defaults may be overridden.",
+          "additionalProperties": true
+        },
+        "config_map": {
+          "type": "object",
+          "description": "Typed CEL expressions contributing shared binding configuration, under the same disjointness rule as config beside it (ADR-131 D8). Expressions see the original input and completed steps only; null omits a key.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "candidate": {
+          "type": "array",
+          "description": "The closed candidate set, in authored order. Referencing a candidate is not authority to invoke an arbitrary capability whose name arrived in user input: the set is fixed at authoring and a request may name only a member of it. Declaration order is NOT a preference source — an ordered policy enumerates the preference explicitly.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "This candidate's site-local name (the HCL block label) — the value a request expression returns and an ordered policy enumerates. It is local to this execution site and is not a new global resource."
+              },
+              "capability": {
+                "type": "object",
+                "description": "The existing capability this candidate binds, by name, with the operation inside it. Required on every candidate.",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The capability this candidate invokes (the HCL block label)."
+                  },
+                  "operation": {
+                    "type": "string",
+                    "description": "The capability operation. REQUIRED on a select candidate — there is no invoke default here, unlike on a fixed capability step, because the native-schema gate is stated about the candidate's selected operation and a default would bind an operation nobody wrote into a contract whose point is that it was checked. Declared optional here so a missing one is refused in the select compiler's own words."
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "input_map": {
+                "type": "object",
+                "description": "Translates the validated shared input into this candidate's native arguments. Its one root namespace is shared_input: it never names the raw Work Order input or another step. On a site that declares attended {} it also reads parent, the Work Order the session was opened for (ADR-179 D5), with the fields and null the capability recipe's input_map gives it; the site's common input_map does not. ABSENT and AUTHORED-EMPTY differ — an absent map means identity in this direction, which is what makes structural schema matching between the shared and native contracts mandatory there, while an empty one constructs an empty object.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "output_map": {
+                "type": "object",
+                "description": "Translates this candidate's validated native result into the shared output. Its one root namespace is native_output. Absent and authored-empty read exactly as they do for input_map.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "config": {
+                "type": "object",
+                "description": "This candidate's own static binding configuration. It composes with the site's config only on DISJOINT keys: a duplicate refuses rather than silently replacing the shared instruction.",
+                "additionalProperties": true
+              },
+              "config_map": {
+                "type": "object",
+                "description": "This candidate's dynamic binding configuration, under the same disjointness rule as config beside it. A provider-specific model override at a selecting site requires an explicit request for that candidate.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "Whether a dispatch of this site is a CONVERSATION rather than a single run (ADR-129 D9) — the same request the fixed capability recipe's interactive makes, declared ONCE ON THE SITE and NEVER ON A CANDIDATE. Being interactive changes the site's OUTPUT CONTRACT, since an interactive dispatch's declaration is contentless, and ADR-130 D1 requires every candidate to present one contract — so a per-candidate flag would let first-available selection change the contract by falling back, and candidate {} therefore carries no such attribute at all. THE CONSEQUENCE FOR THE OFFER SIDE IS THAT EVERY CANDIDATE'S BINDING MUST DECLARE in_flight { yields_turn = true }: a candidate whose tool does not is refused at load, naming the type file and line, the candidate label and the tool file. THERE IS NO MIXED SITE. The offer is frozen onto each pinned candidate, so a tool edit withdrawing yields_turn changes what runs next and does not change a conversation already pinned (ADR-105 D1). Default: false, and the dispatch is byte-identical to one built before this attribute existed."
+        },
+        "attended": {
+          "type": "object",
+          "description": "Whether a dispatch of this site is ATTENDED (ADR-179 D2) — the same request the fixed capability recipe's attended makes, declared ONCE ON THE SITE and NEVER ON A CANDIDATE, for interactive's reason: it changes the site's contract, and first-available selection must not change the contract by falling back. EVERY CANDIDATE'S TOOL MUST DECLARE attendable = true: a candidate whose tool does not is refused at load, naming the type file and line, the candidate label and the tool file. AT MOST ONE OF interactive AND attended. The offer is frozen onto each pinned candidate (ADR-105 D1). Default: absent.",
+          "properties": {
+            "unsandboxed": {
+              "type": "boolean",
+              "description": "Whether the attended session runs as the host's user, outside the dispatch sandbox (ADR-179 D8). Default: false, the sandboxed session. TRUE LOADS ONLY UNDER THE KERNEL SWITCH attended_allow_unsandboxed (ADR-179 D14 item 1), a top-level bool in the bootstrap HCL that is false under every deployment_profile: while it is off, a type declaring unsandboxed = true is refused naming the switch, in one sentence, at the daemon's load, at reload, at tera config validate and at tera config plan, and a plugin carrying such a type is refused at plan. The switch is kernel-only and restart-only, so no vault edit turns it on; tera config validate reads no kernel and judges with it off. A Work Order pinned while the switch was on and dispatched or resumed after a restart with it off is held, not dispatched. Carried through the grammar, the lowering and the configuration pin."
+            },
+            "host": {
+              "type": "string",
+              "description": "The runner the attended session is placed on (ADR-179 D2, D7). It may reference ${inputs.X}; it is kept as written at load and rendered once, when a Work Order of this type is committed. An optional input that is absent leaves the field absent, and the session is then placed by the worker's pools like any dispatch. A reference to an input this type's input_schema does not declare is refused at load, as is a reference rooted at anything but inputs."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "not": {
+        "allOf": [
+          {
+            "required": [
+              "interactive"
+            ],
+            "properties": {
+              "interactive": {
+                "const": true
+              }
+            }
+          },
+          {
+            "required": [
+              "attended"
+            ]
+          }
+        ]
+      },
+      "additionalProperties": false
+    },
+    "output_guard": {
+      "type": "string",
+      "description": "CEL expression evaluated against outputs at completion. A false result moves the WO to paused:awaiting-review."
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Retry, backoff, and concurrency defaults for new WOs of this type.",
+      "properties": {
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum retry attempts for a failed WO."
+        },
+        "retry_backoff": {
+          "type": "array",
+          "description": "Per-attempt backoff durations (Go duration strings).",
+          "items": {
+            "type": "string"
+          }
+        },
+        "concurrency_key": {
+          "type": "string",
+          "description": "HCL template that materialises a concurrency-key string when the Work Order is committed to execution: at create for one filed live, at release for a draft, so an edited draft commits the key its final inputs produce. A concurrency_key stated on the create or the draft itself wins over this template. May reference inputs.foo."
+        },
+        "concurrency_max_waiting": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many Work Orders of this type may WAIT on one worker behind a held concurrency_key (ADR-045 Part 4, Amendment 2026-09-29). Setting it claims that instances sharing a resolved key are interchangeable while they wait, so a newer one supersedes an older one — right for a type filed per event (a triage of a red main), wrong for one carrying unique work. The line is the never-dispatched Work Orders on the worker with the same key in blocked:waiting-on-capacity, whatever blocked them; holders and anything before the capacity gate are not in it. When an arrival would overflow the line while the key is held, one candidate — the line plus the arrival — is superseded: the lowest priority, and among equals the oldest by created_at. An evicted waiter ends superseded with superseded_by naming the arrival that displaced it; an arrival that is itself the victim ends superseded with superseded_by naming the key holder. The event carries reason concurrency-overflow and a detail naming the key, the bound, the holder and the arrival. 0 is first-come-first-served: an arrival while the key is held is superseded at once. Omit for an unbounded line. A retried run, or any Work Order that has ever been active, neither counts toward the bound nor can be evicted. Refused when negative and when the type declares no concurrency_key. Not a work_order.create parameter; the value applied is the arriving Work Order's type's, read live."
+        },
+        "concurrency_key_on_park": {
+          "type": "string",
+          "enum": [
+            "hold",
+            "release"
+          ],
+          "description": "Whether a parked Work Order of this type keeps its concurrency_key (ADR-045 Part 4, Amendment 2026-10-04). hold, the default, keeps it while the Work Order is parked: a run that stopped to ask has not stopped working on what its key names, and a sibling admitted while it waits is a second run on one resource. release hands it back while the Work Order is parked, so another Work Order sharing the key is admitted as though the parked one held nothing, and no line forms behind it. Its resume does NOT wait for the key: a woken run of a releasing type may run beside the one admitted while it was parked. Declare release only for a type whose instances are safe to run together once one has parked, and that may park for long — a gate that waits days for a person's review, whose newer instance must not wait behind it, and whose older instance acts only on what is still its own. Beside hold and release the engine applies a rule of its own, whatever the type declares (ADR-153 D5): a capacity park (paused:awaiting-capacity) holds no key when every refusal it recorded is wakeless, a cause only a configuration or fleet change ends, as the seat gate classifies it (seatgate.ClassifyWake). A capacity park with any waking refusal keeps its key under hold, and so does every other park under hold, a question park among them, unless the run moved into it straight from a park that had released its key. The resume of a park that released its key re-takes it in the store before it executes, and stays parked while a sibling holds it; a run that passed the re-take and is parked again is classified afresh. Read live off the parked Work Order's type, as concurrency_max_waiting is read off the arriving one's. Refused when the type declares no concurrency_key."
+        },
+        "max_steps": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Runaway ceiling on the model turns one dispatch of this type may run. The daemon runs no model loop and enforces nothing here itself (ADR-136): it resolves the value, pins it, and carries it on the capability invocations the Work Order dispatches, as the invocation context's step_ceiling, for a capability that runs a loop of its own to honour. Omit to take the daemon default (200); 0 means unbounded. A ceiling, not a budget — a healthy loop runs one to two orders of magnitude under it."
+        },
+        "max_total_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Runaway ceiling on the input+output tokens one dispatch of this type may consume. The daemon runs no model loop and enforces nothing here itself (ADR-136): it resolves the value, pins it, and carries it on the capability invocations the Work Order dispatches, as the invocation context's token_ceiling, for a capability that runs a loop of its own to honour. Omit to take the daemon default (5000000); 0 means unbounded."
+        },
+        "priority": {
+          "type": "integer",
+          "description": "The priority a Work Order of this type is filed with when its filer states none (ADR-045, Amendment 2026-10-14). Any whole number, negative included; higher is offered a seat sooner in the capacity walk, which admits waiting work in priority-descending, then arrival-ascending order. Omitted, the type files at 0, as it always has. It is written onto the Work Order's spec.priority at create, on every door that files one — work_order.create, create_child, a workflow child step, each child of a composite plan, and the trigger and mint paths that file through create — so get, list, tree and prioritize read it as any other priority. A priority the filer states, 0 included, wins over it, and refile and retry keep the priority the Work Order already carries. A static integer, never a template over inputs, read off the type current at create: a hot-reload changes only Work Orders filed after it, and a draft carries it from its create, editable with edit and not re-applied at release. A type declaring based_on inherits it with the rest of its base's defaults block unless it declares a defaults block of its own. Declare it on a type that is a single point in a train's dependency chain — an orchestrator, a verification — whose wait for a seat behind ordinary work stalls everything filed beneath it."
+        }
+      },
+      "additionalProperties": false
+    },
+    "may_pause_for": {
+      "type": "array",
+      "description": "Narrows the pause reasons a run of this type may reach. Leave it out in the ordinary case: the permitted set is DERIVED from the recipe's own structure, and this attribute only subtracts from that set — a reason the structure cannot honour is refused at load rather than silently dropped (ADR-086, 2026-08-31 amendment). The derivation, by what the type's execution site keeps across a park: a type that runs locally — an agent, workflow, capability or select recipe — keeps its Work Order workspace (the implicit one, or a managed work_order volume it binds) or its step and conversation state, so every reason is honourable; a capability or select recipe whose volume bindings make its writable producer root something other than a managed work_order volume could resume into a directory with another lifetime, so only awaiting-review — reached once the run has finished — is derived for it; a type declaring external { mcp_upstream {} } executes nothing of tera's and parks only where a mirrored upstream report maps to a park, so it derives awaiting-input; and a type declaring external { off_tera { … } } executes nothing of tera's either, but its taker's result can park it on a question, on its children or on named Work Orders, so it derives awaiting-input, awaiting-children and awaiting-event. Some reasons narrow further wherever they cannot arise: awaiting-capacity needs a dispatch of tera's for a pool member to wall (ADR-092 D7), awaiting-credential needs a producer of tera's holding a credential of tera's to report dead (ADR-086, same amendment, over ADR-110 D5), awaiting-upstream needs a tool step of tera's for an upstream_transient code to ride on (ADR-086, 2026-09-22 amendment), and plugin-contract-moved needs a dispatch of tera's calling a plugin under its own per-dispatch identity (ADR-140 D14) — none of which an external type of either executor has — and awaiting-review on an external type of either executor needs an output_guard or a postconditions check that a result could be refuted by. awaiting-approval is never derived: it has no trigger and no state, so a run parked under it could not be reopened. awaiting-interactive-turn is derived for a type that declares its dispatch INTERACTIVE (ADR-129 D9, interactive = true on the capability or select site) and for no other: it has a state, a trigger and several doors, and the declaration is the input that derives it, so a type reaches ADR-129 D3's inbox by declaring it rather than by naming the reason here — naming it in this attribute without the declaration is refused as a widening, and an external type cannot declare it. THE TWO ARE DEFINED SIDE BY SIDE (ADR-129 D3) because input is a generic word and an idle interactive session is not awaiting input: awaiting-input is a producer that asked a specific question and is stuck until a person decides it, and awaiting-interactive-turn is a session that has yielded the turn and is waiting at its inbox for whatever comes next — a message, any of its own children settling, or the pause's own deadline. Write may_pause_for = [] to say that runs of this type park for nothing at all; the recognised vocabulary is awaiting-input, awaiting-event, awaiting-review, awaiting-children, awaiting-approval, awaiting-capacity, awaiting-credential, awaiting-interactive-turn, awaiting-upstream, plugin-contract-moved. PREFER never_pause_for WHEN YOU DO NEED TO NARROW. This attribute enumerates the reasons KEPT, which makes it a statement about the vocabulary as it stood when the line was written: every pause reason minted afterwards is subtracted by it, by an author who could not have considered it. A declaration whose omissions all postdate the newest reason it names earns a load-time advisory finding saying so and naming both repairs, and the subtraction stands until an operator decides which they meant — nothing is widened behind an author's back.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "never_pause_for": {
+      "type": "array",
+      "description": "Narrows the pause reasons a run of this type may reach by naming the reasons REMOVED — the same subtraction may_pause_for performs, written the other way round, and THE ONE TO REACH FOR when a narrowing is genuinely wanted. The permitted set is DERIVED from the recipe's own structure (ADR-086, 2026-08-31 amendment) and this attribute only ever removes from that set; it is the exclusion form that makes the difference, because it says nothing about the reasons it does not name, so a pause reason minted after the line was written stays derived instead of being silently withheld from a type whose structure grants it. That is the failure may_pause_for has and this attribute does not: an enumeration of permissions ages, an enumeration of exclusions does not. Declaring both attributes on one type is a load error rather than an intersection — they are two answers to one question, and a reader would have to reconcile them to know what the type does. Naming a reason the structure does not derive is deliberately NOT an error here, unlike the same name in may_pause_for: there it is a claim about what the type MAY do and is refused as a widening, while here it removes something already absent, which changes nothing today and keeps saying what the author meant if the recipe later grows the structure that would derive it. A misspelled reason IS an error, because an exclusion list that excludes nothing looks exactly like one that worked. An empty list removes nothing and is the same as omitting the attribute — unlike may_pause_for = [], which is the strongest available narrowing. The recognised vocabulary is awaiting-input, awaiting-event, awaiting-review, awaiting-children, awaiting-approval, awaiting-capacity, awaiting-credential, awaiting-interactive-turn, awaiting-upstream, plugin-contract-moved — of which awaiting-interactive-turn and awaiting-input are worth telling apart from the first (ADR-129 D3): awaiting-input is a producer that asked a specific question and is stuck until a person decides it, while awaiting-interactive-turn is an interactive session that has yielded the turn and is waiting at its inbox.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "on_restart_missed": {
+      "type": "string",
+      "enum": [
+        "",
+        "backfill",
+        "skip"
+      ],
+      "description": "Behaviour when a scheduled restart was missed."
+    },
+    "decomposition": {
+      "type": "string",
+      "enum": [
+        "",
+        "composite-plan"
+      ],
+      "description": "Built-in decomposition strategy. composite-plan materialises children from a children-array outputs payload."
+    },
+    "environments": {
+      "type": "object",
+      "description": "Virtual Environments provisioned at WO dispatch with WO-scoped ownership (PRD-013 §11.1 / ADR-057 D4).",
+      "properties": {
+        "environment": {
+          "type": "array",
+          "description": "Environment declarations, each a named provider substrate.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Environment name (HCL block label; per-recipe unique; becomes the bound-tool name prefix, e.g. router.tty_type)."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "pty",
+                  "softshell",
+                  "remote-desktop"
+                ],
+                "description": "Environment type — the provider that serves it (ADR-087 D5: the provider is the environment's type). pty is a real pseudo-terminal wrapping a program; softshell is a pure-Go in-process bash over the mounted volume; remote-desktop (preview, ADR-085 D0) attaches to an operator-declared device over RFB and drives it from pixels. The name is remote-desktop rather than desktop or vnc: desktop reads as the desktop this daemon runs on, which is the inverse of the deny-by-default posture, and vnc names the transport, which is a field on the endpoint declaration."
+              },
+              "mounts": {
+                "type": "array",
+                "description": "Labels of WO/session volumes mounted into the substrate, resolved against the recipe volume bindings at dispatch. Required for the softshell provider, whose shell jails a mounted volume and has no other substrate.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "suspend_policy": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "hold",
+                  "tear_down"
+                ],
+                "description": "What happens to the live substrate when the owning WO pauses (ADR-057 D8). Empty means the provider's default: tear_down for softshell (its helper is freed while the Work Order is parked; files on the volume survive, cwd and shell variables reset, ADR-175 D2), hold for every other type. Write hold on a softshell to keep the helper across a park."
+              },
+              "config": {
+                "type": "object",
+                "description": "Provider-specific configuration. Well-known PTY fields are modeled inline (ADR-057 D4); the software-shell provider's fields live under the software_shell sub-block. Each field is valid only under the provider it belongs to.",
+                "properties": {
+                  "cwd": {
+                    "type": "string",
+                    "description": "Working directory: a mount label or an absolute path inside a mount. PTY only — the software shell presents the fixed virtual root /workspace (ADR-068 D8)."
+                  },
+                  "cols": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Terminal column count. PTY only."
+                  },
+                  "rows": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Terminal row count. PTY only."
+                  },
+                  "env": {
+                    "type": "object",
+                    "description": "Create-time process env for the substrate. PTY only — the software shell runs under a pinned base environment, and a variable is set from the bash line with export.",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "bootstrap": {
+                    "type": "object",
+                    "description": "Two-phase bootstrap (PRD-013 §7.2): durable provision-once, ephemeral startup-every. The software shell supports provision_once only (it has no live process to start).",
+                    "properties": {
+                      "provision_once": {
+                        "type": "array",
+                        "description": "Commands run once when the durable volume is first provisioned.",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "startup_every": {
+                        "type": "array",
+                        "description": "Commands run on every substrate (re)start.",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "expect": {
+                    "type": "object",
+                    "description": "Declarative startup-expect step list (ADR-057 D10): no control flow, no eval. PTY only.",
+                    "properties": {
+                      "timeout": {
+                        "type": "string",
+                        "description": "Overall dialogue ceiling (Go duration)."
+                      },
+                      "step": {
+                        "type": "array",
+                        "description": "Ordered expect steps. The step wrapper is what preserves the authored order (ADR-087 Amendment 3): HCL decodes blocks into one slice per block type, so writing the variant blocks as bare siblings under expect would lose their sequence, and an expect dialogue is nothing but sequence.",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "match": {
+                              "type": "object",
+                              "description": "Wait for a regex, then optionally type a reply. The block label is the regex. Exactly one of the match, send or sleep blocks must be declared (ADR-087 D4).",
+                              "properties": {
+                                "pattern": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "description": "Go regex to wait for (the HCL block label)."
+                                },
+                                "send": {
+                                  "type": "string",
+                                  "description": "Literal or credential reference (keychain://, env://) typed once the pattern matches. A credential reference is resolved in the daemon and rides the FD-3 bootstrap frame; the plaintext never reaches the LLM transcript or any agent-visible surface."
+                                },
+                                "timeout": {
+                                  "type": "string",
+                                  "description": "Per-step ceiling on this wait (Go duration). Bounded above by the block-level overall timeout."
+                                }
+                              },
+                              "required": [
+                                "pattern"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "send": {
+                              "type": "object",
+                              "description": "Type without waiting for anything first — rare but legal for unconditional prefixes. The block label is the value. Exactly one of the match, send or sleep blocks must be declared (ADR-087 D4).",
+                              "properties": {
+                                "value": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "description": "Literal or credential reference to type (the HCL block label). Same resolution and redaction path as a match block's send."
+                                }
+                              },
+                              "required": [
+                                "value"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "sleep": {
+                              "type": "object",
+                              "description": "Pause unconditionally. The block label is the duration. Exactly one of the match, send or sleep blocks must be declared (ADR-087 D4).",
+                              "properties": {
+                                "duration": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "description": "Go duration to pause for (the HCL block label)."
+                                }
+                              },
+                              "required": [
+                                "duration"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "oneOf": [
+                            {
+                              "required": [
+                                "match"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "send"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "sleep"
+                              ]
+                            }
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "software_shell": {
+                    "type": "object",
+                    "description": "Software-shell provider configuration (PRD-015 / ADR-067 D5, ADR-068 D6). Valid only under type = softshell; a recipe that sets it on any other provider is rejected.",
+                    "properties": {
+                      "external": {
+                        "type": "array",
+                        "description": "Tier-2 allow-list: the command names that escape the in-process builtin tier and run as real sandboxed binaries. A name that is neither a builtin nor listed here hard-errors 127 — the shell never falls through to a real PATH. The ratified golden-path allow-list is git + go with network = true and no read_paths; see docs/ops/software-shell.md for the worked example, why gh is deliberately absent, and why the allow-list is documented rather than seeded.",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Command name as typed on the bash line (the HCL block label), e.g. git. It is a bare command name, never a path: dispatch keys on argv[0] verbatim. A name a builtin already serves is rejected, since dispatch tries builtins first and the entry could never run."
+                            },
+                            "path": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Absolute host path of the binary to execute. Absolute is required rather than resolved: a relative argv[0] would resolve against the agent-writable workspace, turning an allow-list entry into run whatever the agent dropped under that name."
+                            },
+                            "args": {
+                              "type": "array",
+                              "description": "Fixed leading arguments prepended to whatever the shell line passed, so an entry can pin a subcommand or a flag.",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "network": {
+                              "type": "boolean",
+                              "description": "Grant this external full kernel-level network access (Seatbelt network allows on macOS; Landlock TCP plus the seccomp address-family allow-list on Linux). Off by default and per-entry. There is NO domain scoping in v1: this is all-or-nothing. A future scoped mode would be an HTTP_PROXY/HTTPS_PROXY domain allow-list, which is cooperative rather than containment — it constrains tools that honour those variables (git, curl, gh, go do), while a non-compliant binary can dial directly and non-HTTP protocols bypass it."
+                            },
+                            "read_paths": {
+                              "type": "array",
+                              "description": "Absolute host subtrees this binary may read, on top of the sandbox floor (ADR-069 D2 layer 2). Each entry grants recursive read and never write. Omit the attribute to attach the measured built-in default for a known command name (git, go, node, npm, curl); an explicitly empty list means floor-only. A relative entry is rejected at load time.",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "write_policy": {
+                        "type": "object",
+                        "description": "Opt-in tightening of what the builtin tier may write inside the workspace jail (ADR-068 D6). Absent means permissive: the jail root is the only boundary.",
+                        "properties": {
+                          "allowed_subtrees": {
+                            "type": "array",
+                            "description": "Restrict builtin-tier writes to these subtrees of the workspace. Empty means the whole workspace is writable. Entries are written the way the shell sees them: relative to the virtual root (src) or absolute under it (/workspace/src). An entry that cannot name a path under the virtual root is rejected — an allow-list that normalized away would otherwise read as no allow-list at all.",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "protected_paths": {
+                            "type": "array",
+                            "description": "Deny builtin-tier writes to these paths and everything under them. Deny overrides allow. A destructive operation on an ancestor of a protected path is refused too, so renaming the parent cannot relocate protected content.",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "write_budget": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Cap on builtin-tier write operations for the life of the session. 0 or unset means unlimited. A refused write spends nothing."
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "limits": {
+                        "type": "object",
+                        "description": "Builtin-tier resource governors (ADR-067 D8), applied per builtin invocation. Absent means the built-in defaults.",
+                        "properties": {
+                          "sort_mem_budget": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Bytes of input a bounded-memory builtin holds in memory before spilling a sorted run to scratch. Unset means the engine default."
+                          },
+                          "scratch_bytes": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Bytes of concurrently-live scratch one builtin invocation may hold in the spill area. Exceeding it fails the builtin loudly rather than filling the host disk."
+                          },
+                          "max_record_len": {
+                            "type": "integer",
+                            "minimum": 4096,
+                            "description": "Bytes of one line/record a builtin will read. Minimum 4096. Without it a memory budget is defeated by a single input with no newline."
+                          },
+                          "merge_fan_in": {
+                            "type": "integer",
+                            "minimum": 2,
+                            "description": "How many scratch runs a bounded-memory builtin merges in one pass, and therefore how many scratch files it holds open at once. Minimum 2: a fan-in of 1 never reduces the run count."
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "endpoint": {
+                    "type": "string",
+                    "description": "Name of the operator-declared remote_desktop_endpoint to attach to (ADR-085 D1). Required under type = remote-desktop and rejected under every other provider. A name and only ever a name: the host, port, transport and credential live in the operator's remote_desktop_endpoint declaration, and no attribute here can express them. Naming an endpoint is not reaching it — resolution is server-side and gated on the RBAC resource remote-desktop/endpoints/<name>/attach, deny-by-default."
+                  },
+                  "geometry": {
+                    "type": "string",
+                    "description": "Requested framebuffer size for a remote-desktop environment, as <width>x<height> (e.g. 1280x800). Valid only under type = remote-desktop; a PTY sizes its grid with cols/rows and a software shell has no screen. ADVISORY — the device decides (ADR-085 D1): the size the device announces at connect, and any mid-session DesktopSize change, is the truth, and every coordinate above the provider is in that space. v1's RFB transport cannot even ask (the client-side size request is the ExtendedDesktopSize extension, outside the ADR-085 D3 encoding set), so what setting this buys today is that a divergence between the request and the device's actual size is reported at attach rather than surfacing as coordinates that quietly do not match. Each axis must be in 1..65535, the range RFB's uint16 dimensions can express."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "name",
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "volumes": {
+      "type": "object",
+      "description": "Volume bindings for this type's capability steps — the resource seam a workflow-recipe Work Order has no other way to declare (ADR-081 amendment). Type-level rather than step-level because the binding is per-Work-Order in lifetime. Bindings apply to capability steps only.",
+      "properties": {
+        "binding": {
+          "type": "array",
+          "description": "Volume bindings, each keyed by a tool volume label.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Binding key matching a tool volume requirement. The label names the mount, not the volume: two holder-bound bindings that agree on provider, lifecycle, retention, ttl, share_key and config are one volume however differently they are labelled. same_as is how that sharing is declared, and a pair that would collapse without it is refused at recipe load — give one of them a source that differs if two volumes were meant."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "corpus_view",
+                  "empty",
+                  "git",
+                  "github",
+                  "hostpath",
+                  "persistent",
+                  "pseudo",
+                  "references",
+                  "template"
+                ],
+                "description": "Volume provider type, or references. Omit the attribute for an empty volume; a name outside this set is refused at recipe load, since nothing would serve it. git clones a repository into the mount; its config.repo is the repository's absolute URL (scheme://host/path), and a schemeless owner/repo is refused. github is a removed spelling: it stays in this enum because narrowing the enum would break the contract's append-only rule, and recipe validation refuses it, naming docs/ops/migrate-github-volume-provider-to-git.md (ADR-159 D10). hostpath borrows an existing host directory read-only without copying it, and is the provider to reach for when the mount is a repository checkout. corpus_view mounts the session corpus, narrowed to the partitions the requesting dispatch's own principal is authorized for, with a manifest naming what it was denied; it must be bound to the reader's own run (lifecycle = \"work_order\", and no_retention rather than ttl, since a view that outlived its run would describe a population that has moved on). references binds the volume to the Work Order's reference repositories (ADR-168 D2): repositories the work reads and never writes, each mounted read-only. Its config has one field, input, naming the input_schema property that carries the list; that property must be declared with \"type\": \"array\" and a \"maxItems\", and each item is held at filing to the platform's item schema (docs/reference/reference-repositories.md) whatever the property's own items say. A references binding may name connection, and declares none of lifecycle, ttl, retention, no_retention, share_key, same_as, when_input or credentials: its lifetime is the platform's and its commits are the Work Order's record. The tool volume it binds must be read-only."
+              },
+              "lifecycle": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "ephemeral",
+                  "persistent",
+                  "session",
+                  "work_order",
+                  "worker"
+                ],
+                "description": "Volume lifecycle policy. Dispositions are ephemeral (reclaimed by refcount) and persistent (explicit deletion). Holder kinds session, work_order and worker bind the volume to the requesting context; worker requires an explicit worker id and never falls back to the caller. Empty means ephemeral."
+              },
+              "retention": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "bounded-by-size"
+                ],
+                "description": "Retain across the holder's runs until the deployment cap is exceeded, then retire the volume whole. The cap is deployment-owned, never a byte count on this binding. An alternative to ttl and no_retention; keep exactly one answer. Requires a holder-bound lifecycle and cannot be declared on a same_as alias. Retention is part of volume identity: different policies resolve separately."
+              },
+              "ttl": {
+                "type": "string",
+                "description": "Retention grace period (Go duration), refused at load if unparseable. On a holder-bound binding (session, work_order, worker) this is what selects ttl-after retention: the volume survives its holder's death for this long instead of being destroyed with it. Two bindings that agree on everything else and differ in ttl are two volumes, not one. One of the answers a holder-bound binding must give: declaring none of ttl, retention or no_retention is refused at recipe load, and docs/ops/upgrade-to-declared-retention.md is the migration for a deployment written before that rule. The exception is a provider that borrows its directory rather than provisioning one (hostpath): nothing ever destroys a borrowed directory, so no retention answer is demanded there — and a ttl declared anyway preserves nothing, it only holds the volume record and its quota count for the window."
+              },
+              "no_retention": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Explicit absence of retention, with the author's reason — an alternative to ttl or retention, and a way a holder-bound binding satisfies the discard rule. Say it when the volume holds nothing that exists only there: a toolchain cache, a scratch tree, anything regenerable. The volume is then destroyed with its holder, exactly as an undeclared one is today, so this changes no behaviour — it states the choice. The reason is mandatory and must be non-empty, following ADR-084 D6's posture for postconditions none: nothing here is worth keeping must read differently from nobody thought about it. Mutually exclusive with ttl and retention, since these are alternative answers. Rejected on a binding whose lifecycle binds no holder (ephemeral, persistent), where retention has no subject, and on a same_as alias, which takes its target's whole source. Accepted but not demanded on a hostpath binding, whose directory the daemon borrows and never removes — the answer cannot change anything there, so it is not asked for. Why the recipe must say it rather than the daemon defaulting it: a retained volume counts against the per-principal quota (ADR-084 D10), private scratch uses no retention while shared toolchain caches use worker-scoped bounded-by-size retention for exactly that reason, and nothing in a binding's shape distinguishes a workspace from a cache — only the author knows whether the directory holds work that exists nowhere else."
+              },
+              "share_key": {
+                "type": "string",
+                "description": "Deliberately share a volume within one holder and host: equal keys with equal provider, retention, ttl and config reuse one volume across invocations, even under different labels; different keys split contents. Never shares across workers or other holders. Omit to preserve existing keyless identity and paths. Cannot be declared on a same_as alias, which inherits its target's share_key. The recipe author must state this choice because only the author knows which bindings may share contents; the deployment still owns the cache byte cap. Matching concrete bindings in one block remain refused: use same_as for an alias or a distinct share_key for a split."
+              },
+              "same_as": {
+                "type": "string",
+                "description": "Bind to the same underlying volume as another binding label, and the way to declare that two labels in one binding block are one volume. The alias inherits its target's share_key and takes its target's whole source, so it may declare no type, lifecycle, retention, ttl, no_retention, share_key, config, credentials or connection of its own — one volume, and the target is the only binding that states its retention."
+              },
+              "config": {
+                "type": "object",
+                "description": "Provider-specific volume configuration. Free-form, and what is accepted depends entirely on type. The git provider reads repo — the repository's absolute URL (scheme://host/path); a schemeless owner/repo is refused — plus ref (a branch name, a tag name, or a FULL commit SHA — 40 hex digits, or 64 for a SHA-256 repository; unset means the remote's HEAD. A SHA checks the workspace out on a detached HEAD at that commit, so a session that pushes must create a branch first; an abbreviated SHA is not accepted and is treated as a branch name, which the remote refuses), sparse (a sparse-checkout path list), and the two ADR-128 object-donor attributes below. mirror selects the host's local git object mirror, and IT IS ON UNLESS YOU TURN IT OFF (ADR-128 D9): a git binding that names no mirror attribute borrows objects from the donor, so a clone transfers roughly the commits since the last fetch rather than the repository. mirror = false is the whole of the opt-out and restores the pre-ADR-128 clone byte for byte, --depth 1 included. THE COST OF LEAVING IT ON IS DISK AND IT IS WORTH KNOWING BEFORE A RETAINED WORKSPACE FILLS ONE: a donated clone is dissociated, so it keeps no pointer to the donor and is a self-contained repository — which means it carries the whole packed history (133 MiB for kottera/kottera) into every retained workspace, where a shallow clone carried a fragment. D2 rules that trade acceptable on the ground that disk is the cheap resource and the uplink is the scarce one; a deployment for which that is false writes mirror = false. What it CANNOT change is what the clone checks out: the clone still contacts the real remote, still negotiates against it, and still ends at the ref the remote publishes, so a stale or missing donor costs bytes and never correctness (D1). max_age bounds how stale the donor may be before this provision fetches it (a Go duration, default 1h) and is a bandwidth dial for the same reason; it is refused beside mirror = false, where there is no donor for it to age. The store itself is daemon-owned and unnameable by design (D7) — a persistent volume resolves by binding label, and a nameable store would be a mountable one — so the recipe chooses whether to use it and nothing else; its size is the deployment's, at platform.git_mirror_store_cap on a daemon and git_mirror_store_cap in runner.hcl on a fleet host. EACH EXECUTING HOST KEEPS ITS OWN: the clone is performed by the machine that provisions the workspace, so a dispatch placed on a runner uses that runner's mirror and pays that host's first cold clone. Operator page: docs/ops/git-object-mirror.md.",
+                "additionalProperties": true
+              },
+              "credentials": {
+                "type": "object",
+                "description": "Provider credential overrides for this volume.",
+                "additionalProperties": true
+              },
+              "connection": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The connection a git binding clones and fetches with (ADR-148 D5), named by its .tera/connections/<name>.hcl stem. Whose credential it is comes from this type's own connection \"<name>\" { filer {} | worker {} } block, so a person's work clones as the person and a trigger's as the worker; a binding naming a connection the type chooses no holder for is refused at load and at config plan, naming it. The daemon resolves the holder's credential once at dispatch start and hands it to the git provider on the executing host, which clones outside the sandbox, so the credential never enters it; a holder who cannot use it parks the run before the workspace is created, and the clone never falls back to the worker's credential or to the host's git configuration. A references binding names a connection the same way, for the credential its references are read with; with none they are read anonymously, never with the host's own credential (ADR-168 D4). Refused beside credentials, which is a second source for the same credential, on a binding whose type is neither git nor references, and on a same_as alias, which takes its target's whole source."
+              },
+              "when_input": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Make this binding conditional on one Work Order input, named by its input_schema property. When the input is given the binding resolves as declared; when it is absent the label is an EMPTY volume with this binding's lifecycle, ttl, retention and share_key, and no config, credentials or connection — the dispatch still succeeds and the tool still gets its mount. Absent means the key is missing, JSON null, or the empty string: \"\" is what a blank form field or flag sends and no provider can provision from it (git refuses an empty repo), so reading it as given would only move the failure from this gate to the provider; every other value, false and 0 included, is given. It is also the opt-in to templating optional inputs: in a gated binding a config attribute (or list element) naming an input the Work Order did not supply is LEFT OUT, so the provider applies its own default — for git an omitted ref is the remote's HEAD. An ungated binding is unchanged: a ${inputs.X} naming a missing input fails the dispatch, and templating an input input_schema does not require is warned about at recipe load and at tera config plan. The two outcomes are distinct volumes (different provider), and the decision is made once per dispatch by the daemon before placement, from the pinned binding and the Work Order's unchanging inputs, so a dispatch on the daemon host and one on a fleet runner, and every park, resume and retry, see the same outcome. Refused naming an input input_schema does not declare (the label could never be anything but empty), naming a required input (it can never be absent), on an empty binding (both outcomes are already empty), and on a same_as alias, which follows its target's gate. Its absent outcome takes part in the same-volume check like any binding, so a gated binding whose empty outcome would equal a sibling's is refused there."
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "toolchains": {
+      "type": "array",
+      "description": "Provisioned toolchain stores a dispatch of this type mounts read-only, by bare toolchain name (ADR-109 D14). THIS IS THE NORMAL HOME of a toolchain requirement, and the reason is a distinction only the type can draw: it knows what the WORK needs, so frontend work declares a browser and backend work on the same daemon, through the same tool, does not. The tool recipe is the second home and carries only what is true of the tool in EVERY dispatch — claude-code needs its harness, which is not a property of any particular work. A dispatch acquires the UNION of the two, with the TOOL'S ORDERED FIRST: the tool's requirements hold for every dispatch while the work's are the local addition, and that ordering is what makes the composed environment deterministic rather than a function of which declaration was read first. Within this list, DECLARATION ORDER DECIDES where each toolchain's environment contributions land — first-declared lands leftmost among the prepends and leftmost among the appends — so reordering the list reorders a composed PATH. A NAME AND NOTHING ELSE, because a consumer of a toolchain says only which: the store is deployment-wide, no invocation supplies a binding, and the definition owns the version key, the provisioning command and what the toolchain contributes to the environment. The name resolves in this type's own vault, else in the system vault (ADR-147 D6): a vault that declares the name gets its own definition for its own types, and a system-vault type always gets the system vault's. Another vault's toolchain is named qualified, <vault>/toolchains/<name>, and resolves only when that vault is granted share toolchains (invoke on vaults/share/toolchains); the reference is a dependency edge, so that vault cannot remove the toolchain while this type requires it, and a plan changing it names this type. The system vault's toolchains need no grant. Each vault's definition has its own store and lock entry, keyed <name>@<vault> outside the system vault. The name may not contain '@'. Refused on an external recipe, which nothing in tera executes and which therefore has no dispatch to mount a store into. A blank entry and a repeated one are load errors: the first mounts nothing while reading as a requirement, and the second reads as a second store when a store is mounted once however many times it is named. Default: empty, which mounts nothing — and a work-order type that does not declare a browser produces a dispatch with no browser, which is the half of the design that keeps backend work cheap.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hitl_delegate": {
+      "type": "string",
+      "enum": [
+        "",
+        "none",
+        "assist",
+        "auto"
+      ],
+      "description": "ADR-079 D4 delegation policy for this type's Work Orders when they pause awaiting input, overriding the owning worker's. none refuses a delegate outright, assist confines it to its policy allow-list, auto lets it answer whatever it judges answerable. Empty inherits the worker."
+    },
+    "hitl_delegate_subject_input": {
+      "type": "string",
+      "description": "Names the input of THIS type that carries the subject Work Order id, marking the type as an ADR-079 D4 HITL delegate. At creation the subject's effective hitl_delegate is resolved and a none refuses the creation; the resolved policy is stamped onto the new Work Order's hitl_delegate input. Must be a required property of input_schema."
+    },
+    "about_input": {
+      "type": "string",
+      "description": "Names the input of THIS type that carries the id of the Work Order this type's work is ABOUT. The referent is a Work Order id and never a world subject — an input carrying a <kind>/<id> world subject is named by the separate subject block (ADR-100 D1), which is why this attribute is spelled after the about edge it derives rather than after the word subject. Naming one input from both is a load error: one operand cannot be both a Work Order id and a world subject. Declaring it makes work_order.create materialize an about relation from each new Work Order to the one that input names, so a general query for the work about a given Work Order finds this type's — which a per-type input alone cannot answer. The input stays an ordinary operand: it is schema-validated, may be required, and is read from CEL by the recipe; the edge is derived from it, so the two cannot disagree. The named property must be declared by input_schema and must not be declared as a non-string type, both checked at load. It need NOT be required — unlike hitl_delegate_subject_input, an absent or empty subject is a legitimate state (a sweep that names no single Work Order) and yields a Work Order with no edge rather than a refusal. A subject id that names no Work Order refuses the creation rather than producing a dangling edge. The derived edge is authorized by the CREATE grant alone (ADR-096 D6): it needs neither api/v1/workorders/relate nor reach on the subject, because the caller chose none of it — the relation is always about, no note is attachable, and the one degree of freedom is an operand the type already obliges it to supply. That is what keeps adding this attribute to a type from changing the grants its callers need, and it is why a cross-worker type may declare it."
+    },
+    "subject": {
+      "type": "array",
+      "description": "Which of THIS type's inputs carry a <kind>/<id> WORLD subject — what the work is about in the world, as against about_input's Work Order id (ADR-100 D1). Repeated: the block label names the input, and a type declares at most four. A creation reads each named input, parses the value as <kind>/<id>, and writes the binding to the subject index, so the Work Orders about a thing are findable FROM that thing rather than only by reading inputs back out of every row. The input stays an ordinary operand — schema-validated, may be required, read from CEL by the recipe — and the binding is derived from it, so the two cannot disagree; a template spelling (subjects = [\"device/${inputs.device_id}\"]) was rejected on exactly that ground, because a template is a second authored representation of one value that can be set in one place and forgotten in the other. Three states bind nothing and all three are legitimate: the type declares no block, the input is absent or null, and the input is the empty string (the shape a sweep takes when it names no particular thing). A present non-string value, a value that is not <kind>/<id>, a kind the deployment has not declared as a subject_kind recipe, and a kind outside this block's own kinds list each REFUSE the creation rather than producing a dangling binding. Authorization is the create grant alone (ADR-096 D6, ADR-101 D1): no separate relate resource and no reach check on the subject, because the caller chose none of it — which is what keeps adding a subject block to a type from changing the grants its callers need. A label naming a property input_schema does not declare is a load error, as is a label also named by about_input or hitl_delegate_subject_input, and as is a fifth block — the bound is four on both sides of a conjunctive match, because the index takes a row per (Work Order, subject) binding and work needing five simultaneous referents is work about a situation.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The input of this type that carries the subject (the HCL block label). Must be a declared property of input_schema, and must not also be named by about_input or hitl_delegate_subject_input — those carry a Work Order id, and ADR-100 D1 rules that a Work Order is never a subject under any kind."
+          },
+          "kinds": {
+            "type": "array",
+            "description": "Which subject kinds this input accepts, naming declared subject_kind recipes. OMITTING IT IS A DECISION, NOT A DEFAULT: without it the type accepts any kind the deployment declares, which is right for a sweep or an audit and a defect for a type that operates on one thing — recalibrate-sensor with no kinds accepts machine/4. Checked at load against the declared kind set, so a typo fails there rather than at the first creation that happens to hit it.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "input"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "claim": {
+      "type": "array",
+      "description": "Which subjects a dispatch of this type must HOLD before it runs (ADR-101 D2-D8) — as against the subject block beside it, which is what the work is ABOUT. A claim is a durable lease over a <kind>/<id> subject, held by a principal within a scope, and unlike an index binding it GATES: a Work Order requiring a subject somebody else holds does not dispatch, and blocks in blocked:capacity with a block_reason naming the subject, the holder and the holder's node. Repeated, and the block label names the requirement — a hard lockout on a machine and a soft claim on a test are two requirements rather than one. THREE AXES HAVE NO DEFAULT AND MUST BE WRITTEN: hardness, scope and on_park. hardness is the one ADR-101 D5 singles out and the reason is not style — it is the one place in the design where a wrong default is a physical-safety failure rather than an inconvenience, since a maintenance lockout that fails open because nobody typed the word is a machine that energises while someone is inside it, and a default would be SILENTLY wrong in the common direction because the case that dominates authoring instinct is soft. scope and on_park refuse a default for the same reason one rung down: each has two ways of being wrong that point in opposite directions, so neither has a conservative fallback to guess. A requirement names its subjects two ways and may mix them — subjects names them literally in ADR-100 D1's <kind>/<id> spelling, and subject_inputs names one of this type's own subject blocks so the claim is over whatever that operand carries at dispatch — with at most four across the two, because a requirement's set IS ADR-100 D3's conjunctive set and ADR-101 D6 acquires it in canonical <kind>/<id> order, all or nothing. DECLARATION ORDER IS THEREFORE NOT SIGNIFICANT, which is what stops two authors who never met writing two recipes that deadlock against each other. THE BLOCK HAS TWO HOMES AND THEY COMPOSE: this and the capability recipe, and unlike checkpoints, observations and in_dispatch the two are NOT selected between — a dispatch acquires the union — because a selection's failure mode here is a capability that declared a hard lockout being dispatched under a type that declared none, and running unclaimed. Refused on an EXTERNAL recipe: such a Work Order never enters the deps to deferred to capacity to dispatch gate chain, so the moment a claim is acquired never arrives, and an interlock that never acquires reads as containment while providing none. The ledger, the pre-dispatch gate, the scopes' release edges and the park behaviour have landed; the ADR-101 D8 TTL sweep is a separate item and NOTHING RENEWS, SWEEPS OR EXPIRES yet, so a claim comes back on the edge its scope or its on_park names and not on a clock.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "This requirement's name (the HCL block label), unique within the recipe. It is how a refusal, a block_reason and an operator's read all name WHICH requirement, which is the only handle a recipe declaring two of them has."
+          },
+          "subjects": {
+            "type": "array",
+            "description": "Subjects this requirement is over, named LITERALLY in ADR-100 D1's <kind>/<id> spelling — machine/4, plant/line-3. The fixed-asset case, where nothing carries the referent as an operand: a trigger-fired sweep names the thing it sweeps. Each is parsed at load, and its kind is checked against the deployment's declared subject_kind recipes wherever the load can see them — the vault load can, and offline validation does not judge it rather than refusing a correct recipe on the strength of not having looked. A repeat is refused: acquiring one subject twice is not a stronger claim than acquiring it once, and a repeat cannot buy room under the bound. Combine with subject_inputs freely — the bound of four is over the two together, and at least one subject across them is required, since a requirement naming none acquires nothing while reading as an interlock.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject_inputs": {
+            "type": "array",
+            "description": "Subjects this requirement is over that arrive as OPERANDS, each naming one of this recipe's own subject \"<input>\" {} blocks. This is what lets a generic recipe lock the thing it was asked about — recalibrate-sensor locks the device its device_id input names — and it names the subject block rather than templating a value (\"machine/${inputs.machine_id}\") for ADR-100 D1's own reason: a template is a second authored representation of one value that can be set in one place and forgotten in the other, and the ADR-101 D1 index binding is already derived from that operand. One authored operand, two derived records, which cannot disagree. A name no subject block on this recipe declares is a load error listing the ones that are, because it would resolve to nothing at dispatch and a requirement that resolves to nothing is the interlock's fail-open direction. WHAT THAT DIRECTION COSTS AT DISPATCH IS THE GATE'S RULING RATHER THAN THIS BLOCK'S: ADR-100 D1 gives a subject input three states that legitimately bind nothing — absent, null and the empty string — and a hard requirement whose subject is one of them must REFUSE rather than proceed unclaimed.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hardness": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "soft"
+            ],
+            "description": "REQUIRED, AND THE ONE AXIS IN THIS DESIGN THAT REFUSES A DEFAULT (ADR-101 D5). hard is containment: if the claim store cannot be reached the work REFUSES — it does not proceed, does not degrade to soft, and does not retry its way into proceeding — and the refusal says that this deployment could not establish whether the subject was held, not that it was. soft is advisory: the work PROCEEDS, and the fact that it proceeded unverified is RECORDED. Both halves of soft are the contract, because a soft claim that proceeded silently has discarded the only evidence that anything was unverified. A requirement omitting this FAILS TO LOAD, naming the file, the requirement and both repairs, and that refusal is the feature: a wrong default here is a physical-safety failure rather than an inconvenience — a maintenance lockout that fails open because nobody typed the word is a machine that energises while someone is inside it — and it would be SILENTLY wrong in the common direction, because the dev-queue case that dominates authoring instinct is soft. THE TWO HARDNESSES' BEHAVIOUR IS A SEPARATE ITEM; this attribute is parsed and refused today and governs nothing yet."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "dispatch",
+              "work_order",
+              "train",
+              "operator"
+            ],
+            "description": "REQUIRED, and the lifetime the claim is held for — which is to say what ENDS it (ADR-101 D4). dispatch releases when the invocation ends, the seat-shaped case, and is the only lifetime an invocation bound to no Work Order has. work_order releases when the Work Order reaches a terminal state. train is SELF PLUS DESCENDANTS-OF-SELF, adopting ADR-098 D2's ruled vocabulary rather than coining a second one — that phrase admits four readings and taking the ruled one keeps one meaning in the system — and an enclosing scope SATISFIES an inner requirement, so a parent holding machine/4 at train scope satisfies its descendants and they acquire nothing, without which a child deadlocks against its own parent. operator is held by a person with no dispatch behind it until they release it: the physical lockout-tagout case, where a technician takes machine/4 by hand before opening a guard and no Work Order models the hand inside the machine. NO DEFAULT, because the two ways of guessing wrong point in opposite directions — a claim scoped narrower than its hazard is an interlock that was not there when it mattered, and one scoped wider is a subject nobody else can take. THE RELEASE EDGES AND ENCLOSING SATISFACTION ARE A SEPARATE ITEM; this attribute is parsed and refused today and governs nothing yet."
+          },
+          "on_park": {
+            "type": "string",
+            "enum": [
+              "hold",
+              "release"
+            ],
+            "description": "REQUIRED, and whether the claim survives a park (ADR-101 D7). hold keeps it: a parked Work Order can sit for days awaiting a person, and for a machine mid-disassembly the hazard the lockout exists for is exactly what a park does not end. release gives it up: a flake fix whose operator went home leaves the subject idle while the work is not. NO DEFAULT, because the two fail in exactly opposite directions and neither is conservative in general — which is why ADR-101 makes this a per-requirement declaration rather than a platform rule. Note the one pause it does not govern: paused:children is distinguished from the operator-facing pauses and holds regardless, because a parent waiting on children it filed has not stopped working on the subject. IT GOVERNS AS OF WAVE 4 ITEM 11 of PLAN-2026-08-learned-operational-knowledge, in both directions and on all three acquirable scopes — a park hands back what declares release and keeps what declares hold, including at dispatch scope, because D7 makes the park behaviour a property of the requirement rather than of the scope's own release edge. A RESUME RE-TAKES WHAT THE PARK HANDED BACK, and if the subject was taken by somebody else meanwhile the resume is REFUSED rather than run uncovered: the Work Order goes back into the pause it held with its parked-run record and its workspace intact, a resume_refused event names the incumbent, and it resumes by itself once the subject comes back."
+          },
+          "ttl": {
+            "type": "string",
+            "description": "How long the claim is held before it expires, as a Go duration (ADR-101 D8). OMITTING IT IS A STATE RATHER THAN A DEFAULT: it declares NO CLOCK, and both halves of what a clock costs are real — a hard claim with no clock at all is how a plant acquires a lock nobody remembers taking, and a hard claim that auto-released on one would unlock a machine on a timer while someone is still inside it. D8's answer is that EXPIRY DOES NOT MEAN THE SAME THING FOR BOTH HARDNESSES, and that split is the safety property: a HARD claim's expiry ALARMS — the claim persists, the subject stays held, and it surfaces as overdue for a person to clear — while a SOFT claim's expiry RELEASES, because nobody's safety rests on it. A zero or negative duration is refused rather than read as either: it is not the same statement as no clock and cannot be honoured as one. Renewal is load-bearing here in a way it is not for a seat, because a work_order- or train-scoped claim is bounded by a Work Order rather than by one dispatch — for a coding session a two-hour sandbox timeout, and for a parked one under on_park = \"hold\" unbounded by anything but the operator. THE SWEEP, THE RENEWAL AND THE EXPIRY SPLIT ARE A SEPARATE ITEM; this attribute is parsed and refused today and governs nothing yet."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "connection": {
+      "type": "array",
+      "description": "Whose credential a dispatch of this type uses, per connection it uses (ADR-148 D3): the filer's (filer {}) or the worker's (worker {}). Repeated, one block per connection: the block label names a connection a .tera/connections/<name>.hcl recipe declares — the type's own plugin vault's when it carries the name, else the system vault's, and a type naming one no recipe declares is refused at load and at plan, naming the type and the connection. The choice is a fact about the work rather than about the harness or the CLI that carries it, so it is declared here and nowhere else: it governs every consumer in a dispatch that names the connection. A type that names no connection declares nothing here and resolves as if the block did not exist.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The connection (the HCL block label): the bare file stem of a .tera/connections/<name>.hcl recipe, with no vault or kind prefix. It binds the recipe's own release first: in a plugin vault carrying the stem, that installation's connection (plugin.<installation>/connections/<name>); otherwise the system vault's (ADR-159 D5.7). Or another installation's connection by its declared address, plugin.<plugin>/connections/<name>, resolved where the recipe loads through the writing vault's binding: a plugin's manifest builds_on, or a .tera/builds-on/<installation>.hcl declaration; a bare stem never names another installation's connection. A type names each connection once."
+          },
+          "filer": {
+            "type": "object",
+            "description": "Use the FILER'S credential for this connection: the delegation subject's own, the person on whose behalf the Work Order was filed (ADR-135 D4). Work with no delegation subject - filed by a trigger, a schedule, a mirror or the daemon - has no filer to act as. Takes no label and no fields: the person is a property of the Work Order, not something the recipe names.",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "worker": {
+            "type": "object",
+            "description": "Use the WORKER'S credential for this connection: the one the owning worker binds in its own connection \"<name>\" { value = ... } block (ADR-148 D3). Takes no label and no fields: the binding is declared once, on the worker.",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "filer"
+            ]
+          },
+          {
+            "required": [
+              "worker"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
+    "step_up": {
+      "type": "array",
+      "description": "Which of this type's Work Order acts a PERSON must confirm with a step-up on tera's own page, and by which methods (ADR-173 D10). Repeated: the block label names the act, once per act. review is the review gate's three edges out of paused:awaiting-review (approve, reject, rework) as one authority; answer is an answer delivered out of paused:awaiting-input, and a wake that delivers none is not the act; submit_result is an off-tera taker's complete or failed declaration, and a paused one is not the act. The declaration is written onto the Work Order at the commit that makes it work (a live create, or the release of a draft) from the type current then, and moves only with a re-pin, which writes it again: a type that gains a step-up changes what is filed next, never what is already filed. Refused at load: an unknown act, a repeated act, submit_result on a type without external { off_tera {} }, and answer on a type declaring hitl_delegate = \"auto\". A type declaring based_on that declares any step_up block replaces its base's set in whole. The guard keys on the state machine's edge, so every door that fires a gated act meets it — work_order.transition, work_order.answer and work_order.submit_result, the management and kit invoke routes, the CLI, a parent or HITL delegate answering, and a correspondence reply — and it refuses the act unless it presents a step-up spent for that act on that Work Order and satisfied by a method the block accepts; a verb called without one begins a record and refuses step_up_required with the URL of the page the person confirms on.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "act": {
+            "type": "string",
+            "enum": [
+              "review",
+              "answer",
+              "submit_result"
+            ],
+            "description": "The act a person must confirm (the HCL block label): review, answer or submit_result. Unique within the type."
+          },
+          "methods": {
+            "type": "array",
+            "description": "The methods a step-up for this act may be satisfied by (ADR-173 D9). Omit it for passkey only, the default. A declared set must include passkey, so every step-up can be satisfied by the strongest method; [\"passkey\", \"email_code\"] is the only other set, for an act a guest without a passkey performs. An empty, unknown or repeated entry is refused at load. passkey is a satisfying passkey with user verification whose anchor is not an email code; email_code is an act code mailed to the person, or a passkey registered in an email-code session.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "passkey",
+                "email_code"
+              ]
+            }
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "This type's own words for the act, shown to the person on tera's step-up page and carried as label on the step_up_required challenge, so a plugin's own UI can show them before sending the person to the page (ADR-173 D10 Amendment 1): \"Confirm your review of the Q3 guide\". The page shows them as text, never markup, marked as the type's words, above tera's own line naming the act and the Work Order, which a label cannot replace or hide. Omit it to show the type's description there instead, made one line and cut to 200 characters; a type with neither shows tera's line alone. Plain text on one line, at most 200 characters; an empty label, or one containing a line break, another control character or a bidirectional formatting character, is refused at load. It is not a template: nothing is substituted into it. The words are read from the type as registered when the step-up is begun, while what is gated and by which methods stays the row's."
+          }
+        },
+        "required": [
+          "act"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "checkpoints": {
+      "type": "object",
+      "description": "What work of this type reports WHILE IT RUNS (ADR-095 D6) — as distinct from what must be true of the request (input_schema), of the report (output_schema, output_guard) or of the world at the end (postconditions). The type owns this for Work-Order-bound work and that is a real choice: a general-purpose capability dispatched under a type has no way of knowing that this kind of work reaches a review stage and that kind does not, and the type does. The same declaration has a second home on the capability recipe for an invocation with no Work Order; the two are selected between and never merged, so a Work Order of this type whose type declares nothing refuses every checkpoint even where the dispatched capability declares a vocabulary of its own. Omitting the block and declaring phases = [] are both refusals and are deliberately distinguishable — the second says the author considered the question — and unlike postconditions, omitting it is NOT warned about: a type that declares no vocabulary has only declined to report progress, which is a legitimate answer for work short enough that a crash record buys nothing.",
+      "properties": {
+        "phases": {
+          "type": "array",
+          "description": "The closed set of phases work of this type may report, in declaration order — the type author's own vocabulary, which is legitimately domain-specific: an implementation type reaches a phase a research type never does. Each is a KEY a consumer matches on rather than a label it prints, so whitespace and control characters are refused. A phase spelled other is refused by name: a catch-all inside a closed set is the free-text fallback the closed set exists to remove, since everything a producer would have narrated ends up under it. An empty list is legal and is the explicit statement that nothing here reports progress. Re-entering a phase is legal and expected — a retry genuinely re-enters the phase it failed in — and sequence numbers are monotonic, so the re-entry is visible as two records rather than one silently overwritten.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "payload_schema": {
+          "type": "string",
+          "description": "Raw JSON Schema for the domain payload — the half of a checkpoint the platform envelope has no field for (heredoc body in HCL). Omit it to declare none: a type that declares no payload schema REFUSES a checkpoint carrying a payload, because the schema is the prescription and a payload nothing prescribes records a shape no consumer can read. No permissive stand-in is inferred. Refused outright when phases is empty, where it could never be consulted. IT MUST BE SELF-CONTAINED: an internal reference (#/$defs/...) is fine, and any $ref the compiler would have to fetch or read off the daemon's disk is refused, because the recipe is the declaration and a schema whose meaning lives in a second file is one no vault carries, no config plan diffs and no reviewer sees. Write it as a prescription rather than a permission: a checkpoint answers what would I want to know if this died right now, not what is happening, so artifact identity earns a place and a percentage-complete does not."
+        }
+      },
+      "required": [
+        "phases"
+      ],
+      "additionalProperties": false
+    },
+    "postconditions": {
+      "type": "object",
+      "description": "What must be true of the WORLD once a Work Order of this type reports complete (ADR-084 D1) — as distinct from what must be true of the request (input_schema) or of the report (output_schema, output_guard). Either a set of named check blocks, or the explicit form none = <reason>; the two are alternatives and declaring both is a load error. A type that declares no postconditions block at all is warned about rather than refused, and nothing is ever inferred from that silence. Checks are lowered into ordinary capability steps on a capability recipe's synthesized workflow and evaluated when the run finishes, so declaring one DOES change runtime behaviour: the verifier is invoked, the outcome routes per the policies below, and the Work Order will not complete on a refuted claim. Two things a deployment owes a type that declares checks: the named verifier capability must exist, and the owning worker must be granted it — work_order.create refuses a Work Order whose worker is not, so an unresourced check turns the type off rather than degrading quietly (ADR-084 D5). On an authored-workflow recipe they are refused outright, and none = <reason> stays legal there. Checks are also refused on a type that requests interactive turns (interactive = true on its capability or select recipe), because the pair cannot run: a check reads outputs.* that an interactive run never writes, the check steps are chained onto a producer step that conclude never advances past, and on_refuted = reinvoke cannot be served once the conversation has ended and the workspace is gone. That refusal is a not-yet rather than a decision against the combination, and none = <reason> stays legal beside the request.",
+      "properties": {
+        "none": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Explicit absence, with the author's reason (ADR-084 D6). Use it when nothing about this kind of work is checkable — the ad-hoc claude-task type is the worked example, since work that states no kind states nothing to verify. The reason is mandatory and must be non-empty: the whole purpose of the form is that no postconditions because nothing applies reads differently from nobody thought about it. Mutually exclusive with check blocks."
+        },
+        "max_feedback_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bound on judged re-invocation for this block (ADR-084 D9): how many times a refuted check may hand its feedback back to the producer before the Work Order goes to review. Defaults to 1. This is a separate budget from defaults.max_retries, which means mechanical re-dispatch of an identical input; the two do not multiply, and exhausting this one routes to review rather than to another mechanical retry. Only reachable when some check selects on_refuted = reinvoke."
+        },
+        "check": {
+          "type": "array",
+          "description": "The checks, each an ordinary capability invocation plus a CEL predicate over its result. A type declares any number: the world is correct for this kind of work is rarely one proposition. They run in declaration order with no short-circuit, their outcomes merge conjunctively, and the feedback of every refuted check is concatenated in the same order — so the order written here is the order an operator or a re-invoked producer reads.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Check name (the HCL block label), unique within the block. Every check is independently named because the verdict recorded on the Work Order keys on the name — which check refuted, at which attempt."
+              },
+              "capability": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Name of the capability that verifies the claim. An ordinary capability invoked the ordinary way, which is what makes verification inherit the per-step permission gate, the audit trail and the per-invocation telemetry. The deployment must grant it to the Work Order's worker; a type that declares a postcondition therefore names a capability its deployment has to resource."
+              },
+              "operation": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Operation on that capability, e.g. pr_state."
+              },
+              "when": {
+                "type": "string",
+                "description": "Optional CEL guard deciding whether this check runs at all, e.g. has(outputs.pr_url). It sees input (the Work Order's inputs), outputs (what the producer reported) and steps (earlier results), but NOT result — it decides whether the verifier is called, so it cannot see what the verifier returned. A false guard SKIPS the check, and skipped is not verified: it contributes nothing either way. Note the hazard the ADR names: a postcondition set in which every check skips has verified nothing while looking like it passed, which is a configuration defect rather than a clean bill of health."
+              },
+              "input_map": {
+                "type": "object",
+                "description": "How the verifier's parameters are built, each value a CEL expression. Carried verbatim by the loader and evaluated in the lowered step's environment at run time, so it can reference the Work Order's own vocabulary rather than anything known at config-load time.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "verified": {
+                "type": "string",
+                "minLength": 1,
+                "description": "CEL predicate deciding whether the claim holds, e.g. result.merged == true. It sees result (the verifier's own result) on top of everything when sees. Required — a check with no predicate cannot resolve. Resolution order per ADR-084 D3: a step error, or a true indeterminate, means indeterminate; otherwise this expression decides between verified and refuted."
+              },
+              "indeterminate": {
+                "type": "string",
+                "description": "Optional CEL predicate over result meaning the check could not answer — a rate limit, an expired credential, or an eventual-consistency window (result.mergeable == null is the worked example, because GitHub computes mergeability asynchronously). It exists so a transport blip does not become a false accusation against a session that did its job: indeterminate never silently completes and never fails, it re-checks and then goes to review."
+              },
+              "on_refuted": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "fail",
+                  "reinvoke",
+                  "review"
+                ],
+                "description": "What happens when THIS check is refuted. review (the default) pauses the Work Order for a human; fail fails it outright, saying re-invocation is futile for this claim; reinvoke hands the feedback back to the producer for a bounded self-correction. Across several refuted checks the most conservative policy wins (fail > review > reinvoke), so reinvoke happens only when every refuted check opted into it. Empty means review — a type opts into self-correction rather than out of it. reinvoke re-enters the producer step with the rendered feedback and the structured verdict on its invocation envelope, bounded by this block's max_feedback_attempts (default 1) and enforced in the executor rather than in the policy; the checks re-run on the way back down, so the Work Order completes on the second verdict or — once the budget is spent — routes to review with every attempt's verdict on the record, never to another mechanical retry (ADR-084 D7/D9)."
+              },
+              "on_indeterminate": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "complete",
+                  "fail",
+                  "review"
+                ],
+                "description": "What happens when THIS check cannot answer — a transport failure, an expired credential, a rate limit, or an eventual-consistency window. review (the default) pauses the Work Order for a human once the bounded re-check below is spent; fail fails it; complete completes the Work Order anyway, the author's statement that this check is advisory. complete is the ONLY path to completing a Work Order on an indeterminate verdict and it must be written down — it is the one setting that re-opens the gap postconditions close, so it is never inherited, and across several indeterminate checks it applies only when every one of them selected it. reinvoke is deliberately not offered: an indeterminate has shown nothing to be wrong, so handing a producer feedback about it asks it to fix a claim nobody refuted."
+              },
+              "max_retries": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Bounded re-check for this check, lowered onto the verification step's own intra-dispatch retry budget (ADR-081 D8) rather than adding a second retry ladder. Default 0 — one attempt. Know what the step retry does and does not do before writing one: it re-attempts transport and tool errors only, and never re-evaluates the check's when or input_map. So this bounds the step-error road to indeterminate; it does NOT re-poll a verifier that answered successfully with an indeterminate-shaped result (a null mergeable stays null however many retries are budgeted). Composes multiplicatively with the Work Order retry ladder, exactly as a workflow step's max_retries does."
+              },
+              "feedback": {
+                "type": "string",
+                "description": "The message handed to a re-invoked producer, saying what is wrong and what would fix it. Written as a template over the Work Order's own vocabulary, so a $-brace interpolation is preserved verbatim at load and rendered at refutation — against input, outputs (what the producer reported), steps and result (what this verifier returned). Every refuted check's feedback is rendered and concatenated in declaration order so one re-invocation addresses everything at once, and the concatenation is recorded on the verdict whatever the policy: it is what an operator sent to review reads, not only what a re-invoked producer would be handed."
+              }
+            },
+            "required": [
+              "name",
+              "capability",
+              "operation",
+              "verified"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "none"
+          ]
+        },
+        {
+          "required": [
+            "check"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "in_dispatch": {
+      "type": "object",
+      "description": "What a RUNNING DISPATCH of this type may DO about its own train (ADR-098 D1) — file successors under it, read back what it filed, read the train it is itself part of, and unstick, repair, withdraw or commit the ones it filed directly — and, beside those verbs, which governed tools its session is handed on the same server, each with the binding config the type gives it (tool, ADR-153 D7). The fifth statement, beside the four about the request (input_schema), the report (output_schema, output_guard), the world at the end (postconditions) and what the work REPORTS while it runs (checkpoints). Its subject is the one none of those has: not what must be true, and not what is narrated, but what the run may DO. A sibling block rather than a section inside checkpoints, deliberately: that block has a second home on a tool recipe governing invocations bound to NO Work Order, and every verb here is Work-Order-bound by construction, so a section inside it would be silently inert in one of its two homes. It also has a different blast radius and a different reviewer — what a run reports and what it may do to its train are worth being separately readable. ONE VERB IS ON BY DEFAULT, and it is artifacts (ADR-098 Amendment 5): every type whose runs have a session is offered it whether or not it declares this block, because it is the run's own file inbox and outbox — it names no Work Order, its handles are train-scoped, its bounds are platform constants and no capability grant stands behind it — and a type that must not have it writes decline = [\"artifacts\"]. Otherwise omitting the block offers NOTHING and is the right default for nearly every type: a type that has not said what its runs may reach has authorized nothing, and no other permissive default is inferred (ADR-075 D11). Omitting it and declaring verbs = [] both refuse every verb that must be declared and are deliberately distinguishable — the second says the author considered the question — and neither declines artifacts. Unlike postconditions, omitting it is NOT warned about, because the warning would recommend a widening nobody asked for. Refused on an EXTERNAL recipe when it declares any verb or grants any tool, the same kind-affinity volumes and environments already have there (ADR-090 D2): a foreign executor runs that type's work and tera dispatches nothing, so there is no run to offer a verb to and no later wiring can produce one; verbs = [] stays legal, like postconditions none. Since ADR-098 WI-F2 the declaration is live rather than inert: a dispatch of this type is offered exactly the verbs declared here that this daemon can serve, and a verb the type did not declare is refused by name with the reason rather than reported as an unknown tool. The verbs are read live; the tool grant is pinned with the run (ADR-105 D1).",
+      "properties": {
+        "verbs": {
+          "type": "array",
+          "description": "The acknowledge verb permanently accepts a failed:awaiting-ack outcome of a direct child and forecloses retry. The verbs a run of this type reaches about its OWN dispatch, its own children and the train it is part of, from a closed set whose members differ in what they REACH as much as in what they do. The reads and the write about its train: create_child files a successor Work Order under the running dispatch — the run's own decomposition, and the one verb here that files work; list enumerates the run's descendants; get reads one Work Order and tree reads a subtree. Their scope is SELF PLUS DESCENDANTS-OF-SELF and nothing else: a run reaches the Work Order it is running and the ones it filed, never an ancestor and never a sibling, because a run's descendants are a run's own doing while everything else is a read of work it did not file. TRAIN is the one read scoped wider (ADR-098 Amendment 3): it answers with the Work Orders in the train the run is PART OF, rooted at that train's root, so it reaches the run's ancestors, its siblings and everything beneath them. It takes NO ID — the train is derived from the running dispatch — so there is no spelling of it that reaches a train the run is not part of, and a supplied id is refused rather than ignored. Self is addressed by the ABSENCE of an id and never by passing one — get with no argument is the only admissible spelling, and get(id = <the run's own id>) is refused by name even though the answer would be identical, because parenthood and identity on this surface are facts the platform holds rather than parameters a producer supplies. The SINGULAR ACTING verbs are scoped one level tighter — the run's DIRECT CHILDREN, matching create_child's own scoping. The recovery verbs unstick a child (ADR-098 Amendment 1): answer answers a question a direct child asked, transition drives a direct child's review gate (approve, reject, rework — and only those three: answer, retry and cancel are their own verbs), and retry puts a direct child's failed:awaiting-ack dispatch back on the queue with guidance. This state is settled but not terminal; bare failed is acknowledged and requires a new Work Order instead of retry. Two of them govern a child that has not run yet: edit repairs one of the run's own DRAFTS in place — only the fields it states, keeping the Work Order's id so a sibling that depends on it still points at the thing that was fixed — and cancel WITHDRAWS one, which is create_child's inverse. Their boundaries are NOT the same and the difference is deliberate. edit reaches a draft and nothing else, because editing a released Work Order is unavailable anywhere to anyone (ADR-104 D5) and an edit to a child that may dispatch at any moment is racy in a way a withdrawal is not. cancel reaches a child that has never been handed to a dispatch: a draft the run has not released, AND one it released that is still scheduled or blocked — neither has executed anything, so withdrawing either classifies no outcome. What cancel still refuses, by name and with its own code, is a child that is running, one that has finished, and one that failed and is queued for a further attempt — the attempt behind that last one is an outcome whatever state the row now reads, and cancelling a dispatch that has run is a supervisor's judgement this surface does not offer at all. edit does not offer type (changing it changes what the Work Order IS), worker (a child's owner is the parent's, and create_child refuses to file one anywhere else) or relations (asserting a typed edge is operator-class), and each is refused by name rather than as an unknown field. Each of the five REQUIRES an id and none of them addresses self, because a run is not its own child. RELEASE (ADR-104 D6) has the same direct-child scope over a different subject: it commits drafts the run filed beneath itself out of draft and into the ordinary lifecycle, which is the second half of filing a breakdown for approval — file the children with draft = true, have the breakdown approved, then release the set. It takes a SET and applies it atomically, so a breakdown whose items depend on each other cannot end up half-committed; there is no singular spelling and no subtree flag, because a draft beneath one of the run's children is a grandchild and out of reach. RECALL (ADR-104 D3, amended 2026-10-01) is release's inverse over the same direct-child SET: it returns children the run released that have NEVER BEEN DISPATCHED to draft, keeping their ids, so a breakdown whose instruction changed after it was released can be repaired with edit and released again rather than cancelled and re-filed. A child that is running, has finished, or failed and is queued for another attempt is refused by name, as is one already in draft; one refused member recalls none of the set, and a reason is required because whoever is waiting on the work reads it. edit and cancel are singular for the opposite reason: repairing or withdrawing one item has no all-or-nothing property to lose. Nothing checks whether the run parked before releasing: the gate is the park a type's own contract obliges, not this grant, and the record reads park, answer, edit, release for anyone auditing it. The asymmetry is the decision: a run may SEE however deep its train goes and may ACT only one level down, so every level answers only its own children and responsibility follows the tree. A target inside the train that is not a direct child is refused with its own code, distinct from the out-of-train one, because it is in your train and it is yours to answer are different facts. ARTIFACTS (ADR-107 D1/D7, ADR-123 D9/D10) is scoped by neither of those rules and is the one verb here whose subject is a FILE. It publishes a file the run produced and hands back an opaque handle; it FETCHES a file another run in the same train published and gave the run the handle for, WRITING IT TO A PATH THE RUN NAMES rather than handing the bytes back in the answer — so a parent can settle did this render at all by opening the file with its own tools, which nothing else on this surface lets it do, since everything a run reports travels and everything it produces stops at the edge of its own storage; and it LISTS THE FILES WHOEVER FILED THIS WORK ORDER ATTACHED TO IT, which is the input direction of the same channel. THE FETCH IS WHY A 32 MiB INPUT COSTS NO CONTEXT: the answer is a path, a size and a digest, and the run opens as much of the file as its work needs. A fourth operation, read, hands the bytes back as content and is served only to a TOOL speaking the contract channel, which pays no context for them; it is withheld from the model-facing server on purpose, because that is the operation that spends a session's context on a file and ADR-107 D2 Amendment 1 exists to stop it being the default. ONE ENTRY GRANTS EVERY OPERATION, on transition's precedent, and the reason is structural rather than stylistic: the roles are per-call rather than per-type, since every non-leaf run in a train both publishes upward and reads downward within one dispatch, while a leaf granted only the read gains nothing. The attachment listing joins the same entry for that reason again — a run that may redeem a handle may list the handles it was itself handed, and no deployment wants one without the other. Two entries would have narrowed nothing real and would have made this the surface's first two-ended pair, with its ends declared on DIFFERENT work-order types and nothing able to check that they compose — create_child does not declare which types it files, so there is no type graph, and the failure would be the channel's own purpose inverted: a child publishes, the parent's read is refused as undeclared, and the parent escalates to a person. IT TAKES NO WORK ORDER ID ON ANY OPERATION: a published file is addressed by the handle publishing returned, which is random and carries no filename and no Work Order, so a reader is HANDED each one and nothing enumerates what a descendant PUBLISHED. The attachment listing takes no argument at all, which is what makes its scope structural rather than checked — there is no field in which to name a Work Order, so it is always the running dispatch's own, it never answers with an output of any Work Order including the run's own, and ADR-107's refusal of train-wide output browsing is untouched by it. What a run is told about its attachments arrives unbidden at dispatch besides, so the listing is what a session that lost that list calls rather than the only way to learn of one. NO ATTACHMENT IS MATERIALIZED INTO A WORKSPACE (ADR-123 D9): the handle and the platform's own invitation are the whole of what a run is given, at every size, and the bytes are pulled by presenting the handle to this same verb. The scope rule therefore lives in the handle rather than in this surface's reach checks — a handle is redeemable by any run in the TRAIN it was published in, which is one step wider than ancestors-only on purpose, because the case that decides it is a run relaying a handle to a sibling that verifies its work. The declared content type is validated WHEN THE FILE IS PUBLISHED, against what a reader could actually be shown, because the publisher is the party that can still fix it and is still running while a reader discovering it later holds a handle to bytes nobody can deliver. Size bounds and how long a published file survives are PLATFORM CONSTANTS rather than attributes of this block (ADR-107 D5): a recipe author does not know how much disk the deployment has, so a per-type cap is a knob nobody can answer. Publishing is offered HERE AND NOWHERE ELSE — an operator does not publish into a train. The spellings an author is likeliest to reach for are refused by name rather than as unknown words: create (parenthood self-asserted; use create_child), siblings (reading beside yourself is not a verb of its own; use train, which answers with the whole train and takes no id), publish and artifact_publish and artifact_read (the file channel is one grant rather than several; use artifacts), complete and fail (terminal classification belongs to the ending record, not to a mid-run call), force_fail (a supervisor's judgement about a dispatch, not a run's about itself), and pause and park (suspension is a declaration about how the dispatch ended, and a call here would be a second authority on that with the precedence rule invisible from both sides). ARTIFACTS IS THE ONE VERB OFFERED WITHOUT BEING LISTED HERE (ADR-098 Amendment 5): a type with a session gets it by default and turns it off with decline, so listing it is legal and redundant. An empty list is legal and is the explicit none of every verb that must be declared; it does not decline artifacts. none is not a member: write verbs = [] instead.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "create_child",
+              "list",
+              "get",
+              "tree",
+              "answer",
+              "transition",
+              "retry",
+              "release",
+              "edit",
+              "cancel",
+              "train",
+              "artifacts",
+              "acknowledge",
+              "recall"
+            ]
+          }
+        },
+        "decline": {
+          "type": "array",
+          "description": "The verbs this type turns OFF from the set every type with a session is offered by default (ADR-098 Amendment 5) — today only artifacts, the run's own file inbox and outbox. Absent declines nothing. A list of verb names beside verbs rather than a per-verb boolean, because an opt-out is a bare may-I with no second axis (docs/hcl-authoring-conventions.md section 9), and it is the ONE spelling of the opt-out: verbs = [] does not decline. A declined verb is never offered, a run reaching for it is refused naming this list, and an attach to a Work Order of this type — create --attach, deliver, interrupt, create_child — is REFUSED, consuming no handle, because a run of it could never read the file; the type read says so beside its in-dispatch surface. Refused at load: a verb that is not on by default (declining it would decline nothing), one also listed in verbs, and a duplicate. Legal on an EXTERNAL recipe, which is offered nothing either way. Like every in_dispatch statement it is read live rather than pinned, so a reload that adds it reaches the next dispatch of a Work Order already filed, and a derived type inherits its base's.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "artifacts"
+            ]
+          }
+        },
+        "tool": {
+          "type": "array",
+          "description": "The governed tools a dispatched SESSION of this type is handed, beside the verbs and on the same reserved tera server (ADR-153 D7). Repeated, one block per tool, labelled with the tool it grants: a native tool such as web-fetch, or a tool recipe as <vault>/tools/<stem> or its bare stem. Each is served under its LEAF (kb-read for plugin.kb/tools/kb-read), so a harness reaches it as it reaches a verb and no adapter learns anything. A type that grants no tool is offered none (ADR-075 D11). Refused at load: a tool no registry resolves; a name two tools answer, rather than choosing one; a config that fails the tool's config_schema; a tool declaring a writable volume, or any volume but a read-only tracked_checkout_input one, because a granted tool is handed its binding config and never the run's volume bindings; a leaf that is an in-dispatch verb (declared here or not), a name the reserved server already serves, or another granted tool's leaf, which is refused and never resolved by choosing one; and any tool on an EXTERNAL recipe, which has no session to hand it to (in_dispatch {} that grants none stays legal there). The grant is the type's half of the authority and never the whole of it: a call is admitted only when the dispatch's own worker also holds invoke on the tool under the spelling the label wrote, as a step of that worker's Work Orders naming the tool the same way would need: a bare-stem grant needs the bare name in the worker's permissions.tools and a canonical grant the canonical name, neither covering the other, and the worker's capability_credentials seat pools for the tool are read under that same spelling. Unlike the verbs, the grant is pinned with the run (ADR-105 D1): a reload that changes it reaches the next run, never a running one. A type derived with based_on inherits it unchanged, because in_dispatch is part of the base's locked contract.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The tool granted (the HCL block label): a native tool's name, or a tool recipe as <vault>/tools/<stem> or its bare stem. Resolved when the type loads, and the resolved tool — not this spelling — is what a run is granted and what a call is dispatched to. This spelling, as written, is the one the dispatch's worker is read under, as a step's capability label is."
+              },
+              "config": {
+                "type": "object",
+                "description": "The binding config the dispatch hands the tool — the same object a step that names the tool fills from its own config, checked at load against the tool's config_schema with its config_defaults composed beneath. It is the TYPE's and never the caller's: a session cannot widen it through the tool's input, so web-fetch's allow_domains here is the whole of what a session may fetch, and an empty or absent allow_domains still denies every host. A literal object, fixed when the type loads: nothing is substituted into it. Absent hands the tool no binding config.",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "verbs"
+      ],
+      "additionalProperties": false
+    },
+    "observations": {
+      "type": "object",
+      "description": "What work of this type is TOLD about its own subjects, unbidden (ADR-100 D6) — the exact mirror of checkpoints, which is what its work REPORTS. Delivery is a pull verb and push is a policy over it, so this block does not decide what is knowable: it decides whether a run of this type is handed what is already known without having to ask. Both halves are load-bearing and this is the half that reaches a language-model harness, because a model that does not know observations exist will never call the verb. The same declaration has a second home on the capability recipe for an invocation with NO Work Order; the two are SELECTED BETWEEN AND NEVER MERGED, so a Work Order of this type whose type declares nothing gets no push even where the dispatched capability declares a policy of its own — a merge would make the delivered set a function of two files, and an author asking why their run was told something could not tell which one to edit. Omitting the block is the default and is no push: a type that has not asked to be told anything has not asked, and nothing is inferred for it. The subjects it resolves about are the type's own subject blocks. LIVE SINCE WAVE 3 ITEM 4 of PLAN-2026-08-learned-operational-knowledge: a dispatch of a type declaring this block IS pushed what is known about its subjects, rendered per mode into whichever driver runs it — a section of the coding harness's own CLAUDE.md, or a section of the tera-native agent's system prompt. THE TWO BOUNDS ARE LIVE TOO, since Wave 3 item 6: past max_full a render stops being full and becomes summary with the reason stated, the set itself untouched at that step, and past max_summary a summary render delivers what fits — the strongest and most recently held, ordered by confidence and then recency — and REPORTS THE COUNT IT ELIDED. THE TWO COMPOSE, so a full set past both degrades AND elides and each fact is named separately. Neither trims silently, the reason rides on the payload the driver serializes rather than only reaching the operator's log, and the D7 delivery record carries the EFFECTIVE mode with degraded saying the unit had asked for more.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "",
+            "summary",
+            "full"
+          ],
+          "description": "Whether the typed body rides along with the claim. summary renders each matched observation's required prose summary (ADR-100 D4) and nothing else — a run that needs structure then calls the observations verb, so ignoring the invitation costs it the body rather than the knowledge. full renders the same set plus each observation's typed body, which is right where a subject's history is small and the extra round trip is not worth its latency. Two values rather than a boolean, because a boolean has no correct default and this axis does: empty means summary. The word mode is the ADR-087 §4 per-axis reserved word — identical field set, differing behaviour — and it collides with subject_kind's continuity mode not at all, because the words are per-axis and the blocks are different. A RENDERER HAS NO EDITORIAL LATITUDE: full delivers exactly what the pull verb would have returned, same set, same fields, same order, and may not summarize, reorder, filter or truncate."
+        },
+        "max_summary": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bound on a summary render, IN OBSERVATIONS RATHER THAN BYTES. Past it a render delivers what fits and reports the count it elided — it never trims silently, because a delivered set that stops being the resolved set while continuing to look like it is the failure honest degradation exists to prevent. The unit is a count and the reason is that the degradation has to be provable: a byte threshold would depend on how verbose a model happened to be inside the free-prose summary ADR-100 D4 obliges and does not bound, which is a boundary that moves between runs and a test that flakes by construction. Bytes are what actually exhaust a window and are being MEASURED BEFORE THEY ARE LEGISLATED — PRD-018 SC10 records bytes rendered per mode, and a byte ceiling is available later as an additive attribute decided on evidence. The bound is declared HERE and not on the subject_kind: a bound is about the consumer's context window, and a kind knows nothing about its consumers — one consumer can be pushed test/ flakes and machine/ safety claims in the same dispatch, and neither kind can hold a number that is right for it. Must be at least 1: there is no spelling for unbounded, and a bound of zero would render nothing while reading as a limit. THE DEFAULT OF 20 IS A STARTING POINT WITH A STATED BASIS, NOT A MEASUREMENT — a summary is one prose line, so twenty is a prompt section rather than a prompt — and it is revisable on PRD-018 SC10 evidence. It carries a default while a subject_kind's mode does not, under ADR-100 D8's own rule: no-default is reserved for choices where absence is dangerous, and a bound guessed generously costs a large prompt rather than a confident falsehood."
+        },
+        "max_full": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bound on a full render, in observations. Past it a render STOPS BEING full and degrades to summary with the reason stated; no renderer may truncate, so the bound cannot live in one. Two numbers rather than one because ADR-100 D6 describes two degradations at two magnitudes and a typed body is large where a prose line is not, so one number cannot express both. DECLARING IT BESIDE mode = \"summary\" IS A LOAD ERROR NAMING BOTH REPAIRS — drop the attribute, or declare mode = \"full\" if a full render was intended — in the posture a checkpoints payload_schema already takes when phases is empty: an attribute that could never be consulted is an authoring error rather than a value to ignore. Must be at least 1, for max_summary's reason. THE DEFAULT OF 5 IS A STARTING POINT WITH A STATED BASIS, NOT A MEASUREMENT — a typed body is unbounded, so five keeps full honest and makes degradation an ordinary safety valve rather than a rarity nobody has seen fire — and it is revisable on PRD-018 SC10 evidence."
+        },
+        "invite_writes": {
+          "type": "boolean",
+          "description": "Whether a dispatch is INVITED TO RECORD what it learned, in the same payload that tells it what is already known (ADR-100 D6 Amendment 3). Defaults to false, and the default is about two costs rather than one: the block's other attributes govern a context cost, and this one governs a context cost AND a write-volume cost, because a producer that accepts the invitation mints records against the ADR-100 D8 per-author budget. Every other delivery decision in this design is a declared per-work-kind policy rather than a global default, for the same reason — you do not want every dispatch writing. IT EXISTS BECAUSE THE LOOP DOES NOT CLOSE ON ITS OWN: everything needed to store operational knowledge ships and is reachable, the push payload already invites a READ, and until this attribute the only route to a write was harness-specific instruction — which is the dependency PRD-018 set out to remove. D6's argument for push existing at all is that a model that does not know observations exist will never call the verb, and that is exactly as true of the write verb. A BOOLEAN, AND THE SCOPE IS NOT THE AUTHOR'S TO DECLARE: it does not say what to invite writes about because that was declared one block over — push resolves about the dispatch's own subject blocks and the invitation is over exactly that set, naming those subjects and nothing else. THE SENTENCE A RUN READS IS THE DAEMON'S AND IS NOT AUTHORABLE. There is deliberately no free-text half: a guidance string would be a second authority on what the run was told, one per recipe rather than one per harness; it could not be validated, so an authoring mistake would surface as a producer behaving oddly months later; and it would put per-deployment prompt engineering into a config file. A driver decides only where the sentence lands and in what markup, which is the split D6 Amendment 1 already rules for the degradation notice. AN INVITED DISPATCH IS INVITED EVEN WHEN NOTHING IS KNOWN YET — the run with nothing to be told is precisely the run that may have something to record, and every subject's first observation comes from a dispatch in exactly that state, so a delivery carrying the invitation and no claims is a real delivery. The four not-pushed reasons are unaffected: a refusal is not an invitation, and a dispatch that resolves no subjects has nothing for one to be about."
+        }
+      },
+      "additionalProperties": false
+    },
+    "history": {
+      "type": "object",
+      "description": "What a SETTLED TRAIN of this type is worth after it ends (ADR-145 D7): how long it stays in the hot store, and what is archived before it leaves. One question with a when (window) and a what (archive), so it is one block - a recipe cannot declare half of it. Once the window has passed, every member of the train stays behind as a STUB, its own Work Order row thinned to its final state, which get, tree and depends_on still answer and list returns when asked with include_archived; the train's events, results and other history rows are deleted, after its record is sealed into the archive when archive asks for one. A train leaves no earlier than its window and can leave later: a live row naming a member (a parked run, a seat lease, a subject claim) holds it and is reported, and an artifact or step binding of the train holds it until that store's own window has passed. A STUB IS READ-ONLY: every mutating verb on it is refused as archived, so a cancelled train can no longer be force-failed and retried once it is trimmed - the window is its recovery period. OMITTING THE BLOCK IS KEEP-ALL: a train of a type that declares nothing is never trimmed, and no default window applies to it anywhere (ADR-145 Open 1). Declare the block on a type whose settled trains may leave the hot store after the window - a periodic sweep or a janitor tick with archive = none, or an audit-bound type with archive = full or failures, whose record work_order.history reads back.",
+      "properties": {
+        "window": {
+          "type": "string",
+          "description": "How long a settled train of this type stays in the hot store, as a Go duration string (72h is three days), measured from the train's LAST terminal transition - a train that is retried and settles again starts its window again (ADR-145 D3). The type owns the value within a deployment ceiling, which is ADR-114 D5's resolution for activity_partition.retention.window reused with its attribute name and its numbers. Omitting it takes the deployment default for the resolved deployment_profile - 7 days for embedded, desktop, dev and test; 30 days for server and gateway. A window above the 365-day ceiling is CLAMPED to it rather than refused, and the daemon log reports the clamp once per type. The sweep runs hourly, so a train leaves somewhere between its window and its window plus an hour. A window BELOW THE 24h FLOOR IS REFUSED at load: the floor keeps a cursor consumer that was offline overnight reconcilable from the hot store and keeps yesterday's failure findable. SET THE WINDOW WELL ABOVE THE LONGEST WORKSPACE ttl of any volume binding this type declares - about 30 days is the normal value, and the 24h floor is a platform minimum, not a recommendation. A train trimmed while its workspace is still retained cannot be resumed onto it; its stub keeps the workspace locator and the volume's own ttl still reclaims the bytes, but the session is lost. This is guidance and is not checked at load."
+        },
+        "archive": {
+          "type": "string",
+          "enum": [
+            "none",
+            "full",
+            "failures"
+          ],
+          "description": "Which trains are written to the archive before the trim. REQUIRED, with no default: whether a type's record is kept is stated by whoever declares the block, never assumed (ADR-145 Open 1). full archives every train. failures archives a train in which any member ended failed or ever entered failed:awaiting-ack - a retried failure counts even when the train later completed - and drops the rest; cancelled does not count, because a cancel is an intentional removal, and neither does superseded, but a cancelled member later force-failed counts from then on. none archives no train - the stub left behind records the train as dropped, and its events, results and other rows are gone. A train that needs a record is sealed into the archive and read back before any of its rows are deleted; while the archive cannot take or verify a record, that train stays in the hot store, and trains that need none are still trimmed. A kept record is read back whole by work_order.history (tera workorder history <id>); a dropped train answers that read with the dropped refusal, never with an empty record."
+        }
+      },
+      "required": [
+        "archive"
+      ],
+      "additionalProperties": false
+    },
+    "sandbox": {
+      "type": "object",
+      "description": "What this type says about the sandbox of EVERY DISPATCH it makes (ADR-069 D12), spelled as a tool recipe's sandbox block is because it speaks to the same axis. It is INTERSECTED with the tool's posture and never replaces it, so a type can narrow a sandbox and cannot widen one. The type is the home because only the work knows what it reads: the tool's ceiling is chosen by the tool's vault and its allow-list serves every type the tool runs for, so a type whose sessions read untrusted text beside private material has no other way to close the hosts that text could steer them to. PINNED WITH THE RUN (ADR-105 D1): removing the block changes what runs next and never widens a run already pinned. Omitting it leaves every dispatch on the tool's own posture, byte for byte as before the block existed.",
+      "properties": {
+        "network": {
+          "type": "string",
+          "enum": [
+            "connections"
+          ],
+          "description": "connections gives every dispatch of this type NO NETWORK EXCEPT ITS CONNECTIONS' PROXY ROUTES. The tool's allow-list is not consulted and its outbound proxy is not started: the sandbox may reach only the loopback ports and the socket of the dispatch's injecting proxy (ADR-148 D4), which darwin's kernel sandbox holds it to. That proxy DROPS EVERY CREDENTIAL HEADER THE SESSION SENDS - Authorization, x-api-key, api-key, x-goog-api-key and every header a connection names - before it presents the deployment's, so a model host is reached only with the deployment's credential and an attacker's key planted in the session buys nothing. A harness therefore reaches its model only through a connection its toolchain routes. A pairing with a tool that needs network and routes nothing through a connection is REFUSED at load and at tera config plan, naming the tool: codex is such a tool today, because its model credential is delivered into the sandbox rather than through a proxy. A tool that asks for no network loses nothing and runs. Omitting it keeps the tool's own posture."
+        },
+        "timeout": {
+          "type": "string",
+          "description": "How much working time every dispatch of this type may have (Go duration, e.g. 45m or 2h): its capability, each select candidate and each capability step of its workflow. It is the tool recipe's sandbox.timeout in the same words and the same duration rule, and it must be positive. IT ONLY NARROWS: a dispatch runs for the least of this value, the tool recipe's sandbox.timeout and the tool's ceiling (the policy profile, and for a plugin tool its installation's approved wallclock), so the tool's own timeout is the upper limit. A value above the maximum of a tool the type dispatches is REFUSED by tera config validate, tera config plan and the apply gate, naming both values and where the maximum comes from; a run pinned before its maximum was lowered runs at the new maximum and logs WARN tool sandbox_timeout_narrowed. Like the tool's timeout it is measured on the monotonic clock of the host running the dispatch, so time that host spends asleep does not count against it. It is pinned with the Work Order, so an edit changes what runs next and never what is already running. Empty, which is what a parameter defaulting to an empty string writes, keeps the tool's own timeout, as does omitting it."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "agent"
+      ]
+    },
+    {
+      "required": [
+        "workflow"
+      ]
+    },
+    {
+      "required": [
+        "capability"
+      ]
+    },
+    {
+      "required": [
+        "external"
+      ]
+    },
+    {
+      "required": [
+        "select"
+      ]
+    },
+    {
+      "required": [
+        "based_on"
+      ],
+      "properties": {
+        "based_on": {
+          "minLength": 1
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "agent"
+            ]
+          },
+          {
+            "required": [
+              "workflow"
+            ]
+          },
+          {
+            "required": [
+              "capability"
+            ]
+          },
+          {
+            "required": [
+              "external"
+            ]
+          },
+          {
+            "required": [
+              "select"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "additionalProperties": false
+}
