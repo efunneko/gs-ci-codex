@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/connection/v2",
+  "title": "Connection recipe (v2)",
+  "description": "Schema for `.tera/connections/<name>.hcl` recipes per [ADR-148](../adr/ADR-148-connections-a-credential-is-declared-once.md) D1. A **connection** names a thing a person or a worker can hold a credential for — how the credential is obtained, who it says it is, how a proxy presents it and whether it may enter a sandbox at all — and says nothing about who holds one. The name is the second half of every key in the delegated-token vault (ADR-148 D2), what an MCP upstream acting per person names, and what `tera connections set <connection>` takes.\n\n**Only the system vault and a plugin vault declare connections.** A connection is deployment configuration: it carries an OAuth registration's client secret (by reference) and defines what people are asked to grant. A `.tera/connections/` directory in any other vault is refused under every `deployment_profile` — at `config plan` with `connection_outside_system_vault`, and at mount, where each file is degraded and registers nothing while the rest of the vault mounts — and no binding grants it: a role whose `grant` names `vaults/contribute/connections` is itself refused at load and at plan. A plugin vault's connections are its installation's ([ADR-159](../adr/ADR-159-what-a-plugin-carries-parameters-connections-and-workflows.md) D5.1): each is keyed `plugin.<installation>/connections/<stem>`, and the vault must declare a `recipes` level of 18 or later, the first whose row lists the kind.\n\nA connection obtains its credential by `oauth` (a person's consent — the golden path), by a pasted `token`, or by both: at least one of the two is required, and they are not alternatives. `account` and `proxy` are validated when the recipe loads; ADR-148 D6's filing and dispatch checks make the `account` call, a dispatch whose work uses the connection serves its `proxy` policy through the dispatch's injecting proxy (D4), and `raw_delivery` defaults to `false`.\n\nThe file stem is the connection's name, so `acme.hcl` declares the connection `acme`. The recipe declares a single `connection` block whose label is optional and, if written, must equal that stem.",
+  "type": "object",
+  "required": [
+    "version",
+    "name"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v2",
+      "description": "Per-recipe grammar version. Required; this schema applies when version is v2. v2 is current: a proxy route's label became its NAME and the host it reaches became its address attribute, so an address is a value rather than a literal (ADR-159 D6). A v1 recipe still loads with no edit — the loader migrates it on read, and each v1 host \"<h>\" or git \"<h>\" becomes the route named <h> with address <h>, which is what it always meant — so this value is what a NEW recipe declares rather than a thing an existing one has to be changed to."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bare connection name (the HCL block label). Optional: the filename stem is the identity, so a label, if written, must equal it. The name is persisted outside the vault - it keys every credential the delegated-token vault stores for this connection - so renaming the file strands those credentials under the old name rather than failing to resolve. Name a connection after the MCP upstream whose per-person registration it replaces and that upstream's stored grants carry over unchanged."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60,
+      "description": "The name a person sees for this connection (GitHub, Anthropic API), on one line of at most 60 characters. Display text only: it is not the connection's identity, need not be unique, and changing it never re-opens a plugin installation's connection decision. Optional; when absent the connection's name is shown. In a plugin vault it may interpolate a parameter, ${var.<name>}."
+    },
+    "description": {
+      "type": "string",
+      "description": "What this connection is, in the words a person granting it reads."
+    },
+    "oauth": {
+      "type": "object",
+      "description": "How a person obtains the credential by consent: the deployment's OAuth client registration at the provider. The golden path, because a provider's short-lived user tokens are renewed without anybody pasting anything. At least one of oauth and token is required; both may be present.",
+      "properties": {
+        "authorization_server": {
+          "type": "string",
+          "description": "The provider's OAuth authorization-server metadata URL (an absolute http or https URL), from which the authorize and token endpoints are discovered. Required alongside client_id."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "The deployment's OAuth client at the authorization server. Optional on purpose: an operator declares the connection before registering the client at the provider, and a connection with no client_id loads and reports its registration gap rather than failing."
+        },
+        "client_secret": {
+          "type": "string",
+          "description": "A credential reference to the client's secret (secret://, keychain://, env:// or vault:// followed by a name), never the secret itself: a vault file is read, diffed and reviewed, so a literal is refused. Requires client_id."
+        },
+        "scopes": {
+          "type": "array",
+          "description": "The scopes a consent requests, one scope per item. Duplicates are dropped.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "audience": {
+          "type": "string",
+          "description": "The audience a token is requested for, when the provider takes one."
+        }
+      },
+      "additionalProperties": false
+    },
+    "token": {
+      "type": "object",
+      "description": "How a person obtains the credential by pasting one, and the guidance shown when they do. An empty block accepts a pasted token with no guidance. At least one of oauth and token is required; both may be present, in which case a pasted token is the fallback to consent.",
+      "properties": {
+        "hint": {
+          "type": "string",
+          "description": "What kind of token to create, in the words shown to the person pasting it - which permissions it needs, for instance."
+        },
+        "url": {
+          "type": "string",
+          "description": "Where to create one (an absolute http or https URL)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "account": {
+      "type": "object",
+      "description": "Where a credential says who it is. Optional and recommended: a Work Order's filing and dispatch call the URL with the holder's credential and park on a failure, and a listing names the account a passing check observed.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The URL that answers, for a credential presented to it, a JSON document describing the account (an absolute http or https URL)."
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The member of that document naming the account, dotted into nested objects when it is not at the top level (login, user.email)."
+        }
+      },
+      "required": [
+        "url",
+        "field"
+      ],
+      "additionalProperties": false
+    },
+    "proxy": {
+      "type": "object",
+      "description": "How the credential is presented, and where. Each host block names a host the credential is added for, the header it takes and the requests to that host never forwarded with it, each git block a host whose HTTPS git traffic authenticates with it, and passthrough the hosts reached with no credential at all. Every other host is refused. A dispatch whose work uses the connection serves it through its injecting proxy, with the credential of the holder the work-order type chooses (ADR-148 D4).",
+      "properties": {
+        "host": {
+          "type": "array",
+          "description": "Zero or more routes on which the credential is added to a request, one block per route, labelled with the route's name and reaching the host its address names. At least one of host and git is required.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The route's name (the HCL block label): lower-case letters, digits, '.', '-' and '_', starting and ending with a letter or digit. It is the route's identity within its connection, so it is written once across the connection's host and git blocks and is never one of its exact passthrough hosts, each of which is a route named by itself, and it is what a toolchain names to reach the route. It need not be a host name: the host is the address."
+              },
+              "address": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The exact lower-case host name the credential is added for (never a port, never a pattern: the proxy reaches the host at https://<address> on the default port). A host takes one rule, so two routes of one connection may not share an address."
+              },
+              "header": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The HTTP header the credential is presented in (Authorization)."
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The header value, as a template interpolating the credential exactly once and otherwise literal text (token ${credential}, Bearer ${credential}). It may also interpolate a parameter, ${var.<name>} (ADR-159 D6.3): the loader substitutes the parameter's value as text — in a plugin vault the installation's, elsewhere variables.hcl's — and leaves ${credential} for the proxy to fill. A parameter's value never forms a ${credential} of its own, and a value that would is refused. No other interpolation, expression or directive is accepted."
+              },
+              "refuse": {
+                "type": "array",
+                "description": "Requests to this host never forwarded with the credential, each written as an upper-case method, one space and an absolute path in which * matches one segment (POST /repos/*/*/keys). For a provider whose tokens can mint lasting credentials - an SSH key, a deploy key, a webhook - these are the requests that would turn a borrowed token into one. Scoped to the host because a path means something only on the API that serves it; a request to any other host is not matched against this list.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "route",
+              "address",
+              "header",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "git": {
+          "type": "array",
+          "description": "Zero or more routes whose HTTPS git traffic is authenticated with the credential, one block per route, labelled with the route's name and reaching the host its address names. At least one of host and git is required.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The route's name (the HCL block label), spelled and scoped as a host route's: written once across the connection's host and git blocks, and never one of its exact passthrough hosts."
+              },
+              "address": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The exact lower-case host name whose HTTPS git traffic authenticates with the credential (never a port, never a pattern). A host takes one rule, so two routes of one connection may not share an address."
+              },
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The username HTTPS git authenticates with, the credential being the password (x-access-token for GitHub)."
+              }
+            },
+            "required": [
+              "route",
+              "address",
+              "username"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "passthrough": {
+          "type": "array",
+          "description": "Hosts reached through the proxy with no credential at all - storage a provider redirects to, for instance. A leading *. matches every subdomain; a port is refused. A host takes one rule, so a passthrough host may not also be the address of a host or git route, and a *. wildcard may not cover one. An exact passthrough host is also a route a toolchain's url may name, named by itself, so it may not be the name of a host or git route either.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "host"
+          ],
+          "properties": {
+            "host": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "git"
+          ],
+          "properties": {
+            "git": {
+              "minItems": 1
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "raw_delivery": {
+      "type": "boolean",
+      "description": "Whether the credential may enter a sandbox at all. Default false: a connection is mediated-only unless its owner says otherwise, on the deny-by-default posture sandbox reads already take, and its credential reaches a sandbox only through the dispatch's proxy. TRUE PUTS THE TOKEN IN THE SANDBOX: it is the escape hatch for a CLI that cannot be mediated, the session can read a credential delivered that way, and nothing protects it. This one setting is what every door into a sandbox's environment asks: a toolchain's raw_delivery for this connection, and a worker's capability_credentials field written with the reference the worker binds for this connection, are refused at load and at plan for a mediated-only connection; a recipe's env block declaring a variable a toolchain delivers this connection's credential in is refused at dispatch. Each refusal names the connection."
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "oauth"
+      ]
+    },
+    {
+      "required": [
+        "token"
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

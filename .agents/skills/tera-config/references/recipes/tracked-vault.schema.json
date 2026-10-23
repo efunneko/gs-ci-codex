@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/tracked-vault/v1",
+  "title": "Tracked vault declaration (v1)",
+  "description": "Schema for `.tera/tracked-vaults/<alias>.hcl` declarations per [ADR-147](../adr/ADR-147-adopting-tera-in-a-repository.md) D10 and its Amendment 3. A **tracked vault** is a vault whose configuration the daemon itself follows in a repository: the system vault declares the repository, the directory holding the vault's `.tera/` subtree, whose credential reads it, and what to follow, and the daemon applies the subtree whenever that ref moves — through the same plan and apply as `tera config apply`, with the same refusals. Nothing outside the daemon pushes configuration into the vault, so no tera credential leaves the daemon.\n\n**Only the system vault's declarations count.** When to make a repository's configuration live is the deployment's decision, so a repository cannot declare its own tracking: a `.tera/tracked-vaults/` directory in any other vault is refused at plan with `tracked_vault_outside_system_vault` and registers nothing at mount, under every deployment profile, and no binding grants it. Neither the system vault nor a plugin vault can be tracked (`tracked_vault_not_trackable`).\n\n**Three modes, exactly one per declaration:** `branch \"<name>\" {}` follows a branch's head; `tags \"<pattern>\" {}` follows the highest matching tag by semver, optionally only tags whose GitHub release is published (`release {}`) and with prereleases in or out; `pin \"<ref>\" {}` holds exactly one tag or commit, which is how rollback is done. A tag is immutable to tera, and tera never downgrades silently: going backwards is a pin.\n\n**The credential is named, never written.** `worker` and `connection` name the worker whose credential for that connection reads the repository (ADR-148 D3). The worker must exist and bind the connection, and the connection must be declared in the system vault. The value never appears in the vault's status, an event, a refusal or a plan.\n\nThe declaration names a vault and never creates one: a declared vault that is not mounted is not an error, and tracking reports it in status until the vault mounts. Removing the declaration returns the vault to hand apply, keeping the tree last applied.\n\nThe file stem is the tracked vault's alias, so `frontend.hcl` declares the tracking of the vault mounted as `frontend`. The recipe declares a single `tracked_vault` block whose label is optional and, if written, must equal that stem.",
+  "type": "object",
+  "required": [
+    "version",
+    "repository",
+    "worker",
+    "connection"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1",
+      "description": "Per-recipe grammar version. Required; this schema applies when version is v1."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The tracked vault's alias (the HCL block label). Optional: the filename stem is the identity and supplies it, so a label, if written, must equal it. It is the alias the vault is mounted as - the namespace segment of every recipe it holds, the argument of its principal vault:<alias>, and what tera vault refresh takes. It may not be system or begin plugin.: the system vault changes only by tera config apply, and a plugin vault is installed, not tracked."
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The repository, as an absolute https:// URL with a host and a path (https://github.com/acme/frontend.git). It carries no user or password: the read credential is the worker's connection, presented over HTTPS, so http://, ssh://, git@ and file:// URLs are refused. With release {} it must be a repository the GitHub API can address, whose path is /<owner>/<repo> with an optional .git suffix."
+    },
+    "path": {
+      "type": "string",
+      "description": "The repository directory that holds the vault's .tera/ subtree, relative to the repository's root - never .tera/ itself, as a manifest's vault source names it. Absolute paths and paths climbing out with .. are refused."
+    },
+    "worker": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The worker whose credential reads the repository, and makes the release lookup. It must be declared, and must bind a credential for connection with a connection block of its own (ADR-148 D3); a declaration naming a worker that does not is refused by the daemon's reload, by tera validate and at plan. A worker the bootstrap HCL declares counts. The credential's value is never written here, and never shown in the vault's status, an event or a plan."
+    },
+    "connection": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Which of the worker's credentials reads the repository: the name of a .tera/connections/<name>.hcl recipe the system vault declares. A binding whose reference does not resolve on this daemon is not a load error; a check that needs it applies nothing and reports the credential unresolvable in the vault's status."
+    },
+    "poll_interval": {
+      "type": "string",
+      "description": "How often the daemon lists the repository's refs, as a Go duration. Default 15m, floor 1m: a poll is load on the git host, so a shorter interval is refused. Declarations reading one repository with one credential share one listing, at the shortest interval among them. A throttled host lengthens it; tera vault refresh and a webhook delivery are not polls and are not bound by it."
+    },
+    "branch": {
+      "type": "object",
+      "description": "Follow a branch: its head is live, and every move is applied through plan and apply. Labelled with the branch name, without refs/heads/. Exactly one of branch, tags and pin.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The branch's name, without refs/heads/ (the HCL block label)."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "tags": {
+      "type": "object",
+      "description": "Follow tags matching a pattern: the highest matching tag by semver that passes the filters is live. Exactly one of branch, tags and pin.",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The tag pattern (the HCL block label): a literal prefix and one trailing *, with no other *, ?, [ or backslash. A tag matches when it begins with the prefix, and its version is what follows; when the prefix ends in v, that v is given back to the version, so config-v* and config-* both read config-v1.2.3 as v1.2.3. The version must be a full semver: a matching tag that is not is reported and skipped, never guessed at."
+        },
+        "prereleases": {
+          "type": "boolean",
+          "description": "Whether a prerelease is a candidate: a tag whose version has a semver prerelease part, or, with release {}, whose GitHub release is marked prerelease. Default false."
+        },
+        "release": {
+          "type": "object",
+          "description": "Require a GitHub release for the tag that is published and is not a draft. Absent, a tag needs no release. A release lookup is made only for a new matching tag above what is live, and a tag whose release is absent or a draft is looked up again at most once per interval, so publishing the release later applies the tag.",
+          "properties": {
+            "api_url": {
+              "type": "string",
+              "description": "The GitHub REST API root the release lookup calls, as an absolute https:// URL. Set it for GitHub Enterprise Server."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "additionalProperties": false
+    },
+    "pin": {
+      "type": "object",
+      "description": "Pin a ref: exactly that tag or commit is live. Rollback and freezing are pins, set here and removed once a fixed tag exists. Exactly one of branch, tags and pin.",
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The pinned ref (the HCL block label): a full commit id - exactly 40 or 64 lowercase hex characters - or else a tag name. An abbreviated commit id is a tag name that will not resolve. A branch cannot be pinned."
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "branch"
+      ]
+    },
+    {
+      "required": [
+        "tags"
+      ]
+    },
+    {
+      "required": [
+        "pin"
+      ]
+    }
+  ],
+  "additionalProperties": false
+}

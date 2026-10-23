@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/role/v1",
+  "title": "Role recipe (v1)",
+  "description": "Schema for `.tera/roles/<name>.hcl` recipes per ADR-060 §1. A role is a named bundle of `grant` and `deny` blocks, each in the ADR-010 vocabulary (actions + hierarchical resource patterns). Roles compile deterministically to an ordered ACL ruleset enforced by the unchanged ADR-010 ACLAuthorizer; a `role_binding` maps subjects to roles. The recipe declares a single `role` block whose label becomes `name`.",
+  "type": "object",
+  "required": [
+    "version",
+    "name"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1",
+      "description": "Per-recipe grammar version. Required; this schema applies when version is v1."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bare role name (the HCL block label). The loader namespaces it as <vault-id>/roles/<name>."
+    },
+    "grant": {
+      "type": "array",
+      "description": "Allow grants. Each entry authorizes the listed actions over the listed resource patterns for any subject bound to this role.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "minItems": 1,
+            "description": "ADR-010 actions. * expands to the full set (connect, publish, subscribe, invoke). This vocabulary is CLOSED and the loader enforces it: a token outside the list is refused when the recipe loads, naming the token, the file and the valid set. It used to be dropped in silence, so a grant naming only a misspelling compiled to an empty action list — a role that granted nothing, from a recipe that loaded clean. A misspelling beside a valid token is refused for the same reason rather than narrowed to the tokens that parsed.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "connect",
+                "publish",
+                "subscribe",
+                "invoke",
+                "*"
+              ]
+            }
+          },
+          "resources": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Hierarchical resource patterns (ADR-010): tools/#, api/v1/config/apply, extensions/authenticator/#, topic patterns, etc.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "scope": {
+            "type": "string",
+            "description": "Reserved tenancy namespace (ADR-060 §7). Defaults to the single global scope in v1; carries no behaviour yet."
+          }
+        },
+        "required": [
+          "actions",
+          "resources"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "deny": {
+      "type": "array",
+      "description": "Deny grants. ADR-060 §1 deny-overrides: every deny from any role a subject holds compiles ahead of every allow.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "minItems": 1,
+            "description": "ADR-010 actions. * expands to the full set (connect, publish, subscribe, invoke). This vocabulary is CLOSED and the loader enforces it: a token outside the list is refused when the recipe loads, naming the token, the file and the valid set. It used to be dropped in silence, so a grant naming only a misspelling compiled to an empty action list — a role that granted nothing, from a recipe that loaded clean. A misspelling beside a valid token is refused for the same reason rather than narrowed to the tokens that parsed.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "connect",
+                "publish",
+                "subscribe",
+                "invoke",
+                "*"
+              ]
+            }
+          },
+          "resources": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Hierarchical resource patterns (ADR-010): tools/#, api/v1/config/apply, extensions/authenticator/#, topic patterns, etc.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "scope": {
+            "type": "string",
+            "description": "Reserved tenancy namespace (ADR-060 §7). Defaults to the single global scope in v1; carries no behaviour yet."
+          }
+        },
+        "required": [
+          "actions",
+          "resources"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kottera.dev/schemas/recipe/skill/v1",
+  "title": "Skill recipe frontmatter (v1)",
+  "description": "Schema for the YAML frontmatter of `.tera/skills/<name>/SKILL.md` per PRD-012 §4.4. The skill body (Markdown after the closing `---`) is unconstrained and is not described by this schema. Mirrors the agentskills.io upstream layout. A bundle named for a toolchain declared in the same vault is that toolchain's guidance: every dispatch that mounts the toolchain is handed this SKILL.md read-only and told its path (ADR-167 D8).\n\n**There is a second kind also called a skill.** This one is a *bundle*: a directory holding `SKILL.md`, with `references/`, `scripts/` and `tools/` beside it, loaded per session through the vault Mounter — a user vault's scripts and bundled tools register only when it holds the `exec` ability, an explicit grant bound in the system vault (ADR-147 D3, D7), while the system vault's own arriving executable surface keeps its per-apply `--allow-exec` acknowledgement — and referenced by the namespaced name `<vault-id>/skills/<dir>`. The other is the **inline-skills** config kind (`.tera/inline-skills/<name>.hcl`, ADR-122 D5): one HCL block carrying an instruction fragment and an additive tool list, composed onto the runtime `Root` and referenced by the *bare* name. A name containing `/skills/` is a bundle; a bare name is an inline skill. Both are named by their file — a bundle by its directory, an inline skill by its stem — so \"which file is skill X?\" has the same answer in either tree.",
+  "type": "object",
+  "required": [
+    "name",
+    "description"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Per-recipe grammar version. Optional; defaults to v1."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Skill name. MUST equal the bare directory name (.tera/skills/<name>/); a mismatch surfaces as a degraded recipe."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description surfaced in operator UIs and matched, alongside name and tags, by the MCP skill library's search action (ADR-094)."
+    },
+    "agentskills": {
+      "description": "Marker indicating agentskills.io / anthropics-skills upstream provenance. Conventionally a boolean true."
+    },
+    "credentials": {
+      "type": "array",
+      "description": "Credential field names this skill reads (interface-only; values resolved at dispatch).",
+      "items": {
+        "type": "string"
+      }
+    },
+    "network": {
+      "type": "array",
+      "description": "Egress allow-list: domains the skill is permitted to reach.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "maxItems": 16,
+      "description": "Discovery tags (ADR-094 D4) — the non-prose axis the MCP skill library's search action matches on, alongside name and description. Lowercase-normalized at load, so two tags differing only in case are one tag: that is a duplicate and degrades the recipe rather than being silently collapsed, because a discovery axis the author cannot see is worse than a refusal they can. The caps are not tidiness. The aggregate tag vocabulary is rendered into every granted caller's tool description (ADR-094 D5), so an unbounded list on one skill is a per-call context cost borne by every principal that can see it rather than by the vault that authored it. Not an upstream agentskills.io key; upstream loaders ignore keys they do not recognise, so a Tera skill carrying tags remains a valid upstream skill.",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32
+      }
+    },
+    "tools": {
+      "type": "array",
+      "description": "Catalog capability names this skill declares as dispatchable (ADR-094 D7). This is NOT the upstream agentskills.io allowed-tools key, and the difference is the reason the name differs: allowed-tools restricts what an agent may use while the skill is active, whereas this enumerates what the MCP skill invoke action may dispatch on the skill's behalf. Declared, not merely mentioned — prose naming a tool grants nothing. The declared set is closed: nothing outside it is reachable through invoke whatever the caller otherwise holds, and each referenced capability still authorizes on its own family, so a caller's grants can only subtract from this set, never extend it. Declarative only today: nothing reads this field for authorization yet, and enforcement lands with the invoke action. Not an upstream key; upstream loaders ignore keys they do not recognise, so a Tera skill carrying tools remains a valid upstream skill.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": true
+}
